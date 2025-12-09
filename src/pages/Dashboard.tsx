@@ -3,16 +3,20 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AttendanceOverview } from '@/components/dashboard/AttendanceOverview';
 import { UpcomingEvents } from '@/components/dashboard/UpcomingEvents';
-import { Users, Clock, Calendar, Wallet, TrendingUp, AlertCircle } from 'lucide-react';
+import { Users, Clock, Calendar, Wallet, TrendingUp, UserPlus, Building2, GitBranch } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
 
 export default function Dashboard() {
+  const today = format(new Date(), 'yyyy-MM-dd');
+
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
       const [employees, departments, branches] = await Promise.all([
-        supabase.from('employees').select('id', { count: 'exact' }),
+        supabase.from('employees').select('id', { count: 'exact' }).eq('employment_status', 'active'),
         supabase.from('departments').select('id', { count: 'exact' }),
         supabase.from('branches').select('id', { count: 'exact' }),
       ]);
@@ -22,6 +26,14 @@ export default function Dashboard() {
         departments: departments.count || 0,
         branches: branches.count || 0,
       };
+    },
+  });
+
+  const { data: attendanceToday } = useQuery({
+    queryKey: ['attendance-today', today],
+    queryFn: async () => {
+      const { data, count } = await supabase.from('attendance').select('id', { count: 'exact' }).eq('date', today);
+      return count || 0;
     },
   });
 
@@ -47,6 +59,8 @@ export default function Dashboard() {
     },
   });
 
+  const presentPercentage = stats?.totalEmployees ? Math.round((attendanceToday || 0) / stats.totalEmployees * 100) : 0;
+
   return (
     <DashboardLayout title="Dashboard" subtitle="Welcome back! Here's what's happening today.">
       {/* Stats Grid */}
@@ -54,17 +68,17 @@ export default function Dashboard() {
         <StatCard
           title="Total Employees"
           value={stats?.totalEmployees || 0}
-          change="+12% from last month"
-          changeType="positive"
+          change={`${stats?.departments || 0} depts, ${stats?.branches || 0} branches`}
+          changeType="neutral"
           icon={Users}
           iconColor="text-primary"
           iconBgColor="bg-primary/10"
         />
         <StatCard
           title="Present Today"
-          value="85%"
-          change="142 of 167 employees"
-          changeType="neutral"
+          value={`${presentPercentage}%`}
+          change={`${attendanceToday || 0} of ${stats?.totalEmployees || 0} employees`}
+          changeType="positive"
           icon={Clock}
           iconColor="text-success"
           iconBgColor="bg-success/10"
@@ -102,22 +116,22 @@ export default function Dashboard() {
           <div className="rounded-xl border border-border bg-card p-6 card-shadow">
             <h3 className="text-lg font-semibold text-card-foreground">Quick Actions</h3>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <button className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
-                <Users className="h-6 w-6 text-primary" />
+              <Link to="/employees" className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
+                <UserPlus className="h-6 w-6 text-primary" />
                 <span className="text-sm font-medium">Add Employee</span>
-              </button>
-              <button className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
+              </Link>
+              <Link to="/attendance" className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
                 <Clock className="h-6 w-6 text-success" />
                 <span className="text-sm font-medium">Mark Attendance</span>
-              </button>
-              <button className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
+              </Link>
+              <Link to="/payroll/salary" className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
                 <Wallet className="h-6 w-6 text-accent" />
                 <span className="text-sm font-medium">Process Payroll</span>
-              </button>
-              <button className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
+              </Link>
+              <Link to="/reports" className="flex flex-col items-center gap-2 rounded-lg border border-border bg-background p-4 transition-colors hover:bg-muted">
                 <TrendingUp className="h-6 w-6 text-warning" />
                 <span className="text-sm font-medium">View Reports</span>
-              </button>
+              </Link>
             </div>
           </div>
         </div>

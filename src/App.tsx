@@ -9,6 +9,15 @@ import Dashboard from "./pages/Dashboard";
 import Employees from "./pages/Employees";
 import Attendance from "./pages/Attendance";
 import Leave from "./pages/Leave";
+import Departments from "./pages/Departments";
+import Branches from "./pages/Branches";
+import GPSTracking from "./pages/GPSTracking";
+import Payroll from "./pages/Payroll";
+import Performance from "./pages/Performance";
+import Reports from "./pages/Reports";
+import Documents from "./pages/Documents";
+import Announcements from "./pages/Announcements";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -51,15 +60,15 @@ const AppRoutes = () => {
       <Route path="/employees" element={<ProtectedRoute><Employees /></ProtectedRoute>} />
       <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
       <Route path="/leave" element={<ProtectedRoute><Leave /></ProtectedRoute>} />
-      <Route path="/departments" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/branches" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/gps-tracking" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/payroll/*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/performance" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/reports" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/documents" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/announcements" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/departments" element={<ProtectedRoute><Departments /></ProtectedRoute>} />
+      <Route path="/branches" element={<ProtectedRoute><Branches /></ProtectedRoute>} />
+      <Route path="/gps-tracking" element={<ProtectedRoute><GPSTracking /></ProtectedRoute>} />
+      <Route path="/payroll/*" element={<ProtectedRoute><Payroll /></ProtectedRoute>} />
+      <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
+      <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+      <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+      <Route path="/announcements" element={<ProtectedRoute><Announcements /></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
