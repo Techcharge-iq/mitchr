@@ -54,6 +54,7 @@ const navigation = [
   { name: 'Reports', href: '/reports', icon: BarChart3 },
   { name: 'Documents', href: '/documents', icon: FileText },
   { name: 'Announcements', href: '/announcements', icon: Bell },
+  { name: 'User Management', href: '/user-management', icon: ShieldCheck, adminOnly: true },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
