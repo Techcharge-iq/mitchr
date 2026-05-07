@@ -22,13 +22,13 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 py-3 pl-14 backdrop-blur-xl md:h-16 md:px-6 md:pl-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+        <h1 className="text-lg font-semibold text-foreground sm:text-xl">{title}</h1>
+        {subtitle && <p className="hidden text-sm text-muted-foreground sm:block">{subtitle}</p>}
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         <div className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
