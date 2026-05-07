@@ -23,7 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -44,7 +44,8 @@ const navigation = [
     icon: Wallet,
     children: [
       { name: 'Salary Structures', href: '/payroll/salary' },
-      { name: 'Advances', href: '/payroll/advances' },
+      { name: 'Employee Advances & Expenses', href: '/payroll/advances' },
+      { name: 'Employee Statements', href: '/payroll/statements' },
       { name: 'Payslips', href: '/payroll/payslips' },
     ],
   },
@@ -55,10 +56,21 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+}
+
+export function AppSidebar({ className, onNavigate }: AppSidebarProps) {
   const { signOut, user } = useAuth();
   const location = useLocation();
-  const [openMenus, setOpenMenus] = useState<string[]>([]);
+  const [openMenus, setOpenMenus] = useState<string[]>(location.pathname.startsWith('/payroll') ? ['Payroll'] : []);
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/payroll')) {
+      setOpenMenus((prev) => (prev.includes('Payroll') ? prev : [...prev, 'Payroll']));
+    }
+  }, [location.pathname]);
 
   const toggleMenu = (name: string) => {
     setOpenMenus((prev) =>
@@ -67,7 +79,7 @@ export function AppSidebar() {
   };
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar text-sidebar-foreground">
+    <aside className={cn("fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar text-sidebar-foreground", className)}>
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
@@ -106,6 +118,7 @@ export function AppSidebar() {
                     <NavLink
                       key={child.href}
                       to={child.href}
+                      onClick={onNavigate}
                       className={({ isActive }) =>
                         cn(
                           'block rounded-lg px-3 py-2 text-sm transition-colors',
@@ -124,6 +137,7 @@ export function AppSidebar() {
               <NavLink
                 key={item.href}
                 to={item.href}
+                onClick={onNavigate}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
@@ -152,7 +166,7 @@ export function AppSidebar() {
             </div>
           </div>
           <button
-            onClick={signOut}
+            onClick={() => { onNavigate?.(); signOut(); }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-destructive hover:text-destructive-foreground"
           >
             <LogOut className="h-5 w-5" />

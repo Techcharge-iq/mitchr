@@ -167,10 +167,13 @@ export interface Advance {
   amount: number;
   remaining_amount: number;
   monthly_deduction: number;
+  purpose: string | null;
+  others: string | null;
   reason: string | null;
   status: AdvanceStatus;
   approved_by: string | null;
   approved_at: string | null;
+  salary_adjusted_at: string | null;
   start_deduction_date: string | null;
   created_at: string;
   updated_at: string;
