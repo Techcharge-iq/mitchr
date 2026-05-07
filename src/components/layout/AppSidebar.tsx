@@ -64,9 +64,10 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ className, onNavigate }: AppSidebarProps) {
-  const { signOut, user } = useAuth();
+  const { signOut, user, userRole } = useAuth();
   const location = useLocation();
   const [openMenus, setOpenMenus] = useState<string[]>(location.pathname.startsWith('/payroll') ? ['Payroll'] : []);
+  const visibleNavigation = navigation.filter((item) => !('adminOnly' in item && item.adminOnly) || userRole === 'admin');
 
   useEffect(() => {
     if (location.pathname.startsWith('/payroll')) {
