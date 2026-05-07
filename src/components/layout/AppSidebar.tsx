@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Building2,
   GitBranch,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
