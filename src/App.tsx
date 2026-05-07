@@ -18,6 +18,7 @@ import Reports from "./pages/Reports";
 import Documents from "./pages/Documents";
 import Announcements from "./pages/Announcements";
 import Settings from "./pages/Settings";
+import UserManagement from "./pages/UserManagement";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
