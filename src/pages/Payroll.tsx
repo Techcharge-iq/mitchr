@@ -145,7 +145,7 @@ export default function Payroll() {
         .select('*, employees(first_name, last_name, employee_code)')
         .eq('is_active', true);
       if (error) throw error;
-      return data as SalaryStructureRecord[];
+      return data as unknown as SalaryStructureRecord[];
     },
   });
 
