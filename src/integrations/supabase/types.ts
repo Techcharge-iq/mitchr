@@ -61,8 +61,11 @@ export type Database = {
           employee_id: string
           id: string
           monthly_deduction: number
+          others: string | null
+          purpose: string | null
           reason: string | null
           remaining_amount: number
+          salary_adjusted_at: string | null
           start_deduction_date: string | null
           status: Database["public"]["Enums"]["advance_status"] | null
           updated_at: string | null
@@ -75,8 +78,11 @@ export type Database = {
           employee_id: string
           id?: string
           monthly_deduction: number
+          others?: string | null
+          purpose?: string | null
           reason?: string | null
           remaining_amount: number
+          salary_adjusted_at?: string | null
           start_deduction_date?: string | null
           status?: Database["public"]["Enums"]["advance_status"] | null
           updated_at?: string | null
@@ -89,8 +95,11 @@ export type Database = {
           employee_id?: string
           id?: string
           monthly_deduction?: number
+          others?: string | null
+          purpose?: string | null
           reason?: string | null
           remaining_amount?: number
+          salary_adjusted_at?: string | null
           start_deduction_date?: string | null
           status?: Database["public"]["Enums"]["advance_status"] | null
           updated_at?: string | null
@@ -966,6 +975,7 @@ export type Database = {
           email: string
           full_name: string | null
           id: string
+          is_active: boolean | null
           phone: string | null
           updated_at: string | null
         }
@@ -975,6 +985,7 @@ export type Database = {
           email: string
           full_name?: string | null
           id: string
+          is_active?: boolean | null
           phone?: string | null
           updated_at?: string | null
         }
@@ -984,6 +995,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           id?: string
+          is_active?: boolean | null
           phone?: string | null
           updated_at?: string | null
         }
