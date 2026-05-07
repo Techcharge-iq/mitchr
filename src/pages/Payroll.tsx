@@ -145,7 +145,7 @@ export default function Payroll() {
         .select('*, employees(first_name, last_name, employee_code)')
         .eq('is_active', true);
       if (error) throw error;
-      return data as SalaryStructureRecord[];
+      return data as unknown as SalaryStructureRecord[];
     },
   });
 
@@ -154,10 +154,10 @@ export default function Payroll() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('advances')
-        .select('*, employees(first_name, last_name, employee_code)')
+        .select('*, employees!advances_employee_id_fkey(first_name, last_name, employee_code)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as AdvanceRecord[];
+      return data as unknown as AdvanceRecord[];
     },
   });
 
@@ -170,7 +170,7 @@ export default function Payroll() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
-      return data as PayrollRecord[];
+      return data as unknown as PayrollRecord[];
     },
   });
 

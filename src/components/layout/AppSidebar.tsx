@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Building2,
   GitBranch,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,6 +54,7 @@ const navigation = [
   { name: 'Reports', href: '/reports', icon: BarChart3 },
   { name: 'Documents', href: '/documents', icon: FileText },
   { name: 'Announcements', href: '/announcements', icon: Bell },
+  { name: 'User Management', href: '/user-management', icon: ShieldCheck, adminOnly: true },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -62,9 +64,10 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ className, onNavigate }: AppSidebarProps) {
-  const { signOut, user } = useAuth();
+  const { signOut, user, userRole } = useAuth();
   const location = useLocation();
   const [openMenus, setOpenMenus] = useState<string[]>(location.pathname.startsWith('/payroll') ? ['Payroll'] : []);
+  const visibleNavigation = navigation.filter((item) => !('adminOnly' in item && item.adminOnly) || userRole === 'admin');
 
   useEffect(() => {
     if (location.pathname.startsWith('/payroll')) {
@@ -94,7 +97,7 @@ export function AppSidebar({ className, onNavigate }: AppSidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {navigation.map((item) =>
+          {visibleNavigation.map((item) =>
             item.children ? (
               <Collapsible
                 key={item.name}

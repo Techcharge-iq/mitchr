@@ -11,7 +11,24 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -32,24 +49,46 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
 import { Employee, Department, Branch } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Plus, Search, Filter, MoreHorizontal, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+
+type EmployeeForm = {
+  employee_code: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  designation: string;
+  department_id: string;
+  branch_id: string;
+  contract_type: 'full_time' | 'part_time' | 'contract' | 'intern';
+  is_field_staff: boolean;
+};
+
+const emptyForm: EmployeeForm = {
+  employee_code: '',
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  designation: '',
+  department_id: '',
+  branch_id: '',
+  contract_type: 'full_time',
+  is_field_staff: false,
+};
 
 export default function Employees() {
+  const { userRole } = useAuth();
+  const isAdmin = userRole === 'admin';
+  const isAdminOrHr = userRole === 'admin' || userRole === 'hr_staff';
+
   const [isOpen, setIsOpen] = useState(false);
+  const [editing, setEditing] = useState<Employee | null>(null);
+  const [deleting, setDeleting] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [formData, setFormData] = useState({
-    employee_code: '',
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    designation: '',
-    department_id: '',
-    branch_id: '',
-    contract_type: 'full_time' as const,
-    is_field_staff: false,
-  });
+  const [formData, setFormData] = useState<EmployeeForm>(emptyForm);
 
   const queryClient = useQueryClient();
 
@@ -58,13 +97,8 @@ export default function Employees() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employees')
-        .select(`
-          *,
-          department:departments(name),
-          branch:branches(name)
-        `)
+        .select(`*, department:departments(name), branch:branches(name)`)
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
       return data as (Employee & { department: { name: string } | null; branch: { name: string } | null })[];
     },
@@ -88,8 +122,10 @@ export default function Employees() {
     },
   });
 
+  const resetForm = () => setFormData(emptyForm);
+
   const createEmployee = useMutation({
-    mutationFn: async (data: typeof formData) => {
+    mutationFn: async (data: EmployeeForm) => {
       const { error } = await supabase.from('employees').insert([{
         ...data,
         department_id: data.department_id || null,
@@ -101,23 +137,57 @@ export default function Employees() {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       toast.success('Employee added successfully');
       setIsOpen(false);
-      setFormData({
-        employee_code: '',
-        first_name: '',
-        last_name: '',
-        email: '',
-        phone: '',
-        designation: '',
-        department_id: '',
-        branch_id: '',
-        contract_type: 'full_time',
-        is_field_staff: false,
-      });
+      resetForm();
     },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    },
+    onError: (e: Error) => toast.error(e.message),
   });
+
+  const updateEmployee = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: EmployeeForm }) => {
+      const { error } = await supabase.from('employees').update({
+        ...data,
+        department_id: data.department_id || null,
+        branch_id: data.branch_id || null,
+      }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success('Employee updated');
+      setEditing(null);
+      resetForm();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteEmployee = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('employees').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success('Employee deleted');
+      setDeleting(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openEdit = (emp: Employee) => {
+    setEditing(emp);
+    setFormData({
+      employee_code: emp.employee_code,
+      first_name: emp.first_name,
+      last_name: emp.last_name,
+      email: emp.email,
+      phone: emp.phone || '',
+      designation: emp.designation || '',
+      department_id: emp.department_id || '',
+      branch_id: emp.branch_id || '',
+      contract_type: (emp.contract_type as EmployeeForm['contract_type']) || 'full_time',
+      is_field_staff: !!emp.is_field_staff,
+    });
+  };
 
   const filteredEmployees = employees?.filter((emp) =>
     `${emp.first_name} ${emp.last_name} ${emp.email} ${emp.employee_code}`
@@ -127,203 +197,121 @@ export default function Employees() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active':
-        return 'bg-success/10 text-success border-success/20';
-      case 'on_leave':
-        return 'bg-warning/10 text-warning border-warning/20';
-      case 'terminated':
-        return 'bg-destructive/10 text-destructive border-destructive/20';
-      default:
-        return 'bg-muted text-muted-foreground';
+      case 'active': return 'bg-success/10 text-success border-success/20';
+      case 'on_leave': return 'bg-warning/10 text-warning border-warning/20';
+      case 'terminated': return 'bg-destructive/10 text-destructive border-destructive/20';
+      default: return 'bg-muted text-muted-foreground';
     }
   };
+
+  const renderEmployeeForm = (onSubmit: () => void, submitting: boolean, label: string) => (
+    <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="grid gap-4 py-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="employee_code">Employee Code *</Label>
+          <Input id="employee_code" value={formData.employee_code} onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="email">Email *</Label>
+          <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>First Name *</Label>
+          <Input value={formData.first_name} onChange={(e) => setFormData({ ...formData, first_name: e.target.value })} required />
+        </div>
+        <div className="space-y-2">
+          <Label>Last Name *</Label>
+          <Input value={formData.last_name} onChange={(e) => setFormData({ ...formData, last_name: e.target.value })} required />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Phone</Label>
+          <Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+        </div>
+        <div className="space-y-2">
+          <Label>Designation</Label>
+          <Input value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Department</Label>
+          <Select value={formData.department_id} onValueChange={(v) => setFormData({ ...formData, department_id: v })}>
+            <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+            <SelectContent>
+              {departments?.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Branch</Label>
+          <Select value={formData.branch_id} onValueChange={(v) => setFormData({ ...formData, branch_id: v })}>
+            <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+            <SelectContent>
+              {branches?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Contract Type</Label>
+          <Select value={formData.contract_type} onValueChange={(v: EmployeeForm['contract_type']) => setFormData({ ...formData, contract_type: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full_time">Full Time</SelectItem>
+              <SelectItem value="part_time">Part Time</SelectItem>
+              <SelectItem value="contract">Contract</SelectItem>
+              <SelectItem value="intern">Intern</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-end">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={formData.is_field_staff} onChange={(e) => setFormData({ ...formData, is_field_staff: e.target.checked })} className="h-4 w-4 rounded border-border" />
+            <span className="text-sm">Field Staff (GPS Tracking)</span>
+          </label>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => { setIsOpen(false); setEditing(null); resetForm(); }}>Cancel</Button>
+        <Button type="submit" disabled={submitting}>
+          {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{label}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
 
   return (
     <DashboardLayout title="Employees" subtitle="Manage your organization's workforce">
       <div className="space-y-6">
-        {/* Header Actions */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search employees..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+            <Input placeholder="Search employees..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon">
-              <Filter className="h-4 w-4" />
-            </Button>
-            <Dialog open={isOpen} onOpenChange={setIsOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Employee
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Add New Employee</DialogTitle>
-                  <DialogDescription>
-                    Enter the employee details below
-                  </DialogDescription>
-                </DialogHeader>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    createEmployee.mutate(formData);
-                  }}
-                  className="grid gap-4 py-4"
-                >
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="employee_code">Employee Code *</Label>
-                      <Input
-                        id="employee_code"
-                        value={formData.employee_code}
-                        onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
-                        placeholder="EMP-001"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email *</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        placeholder="employee@company.com"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="first_name">First Name *</Label>
-                      <Input
-                        id="first_name"
-                        value={formData.first_name}
-                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="last_name">Last Name *</Label>
-                      <Input
-                        id="last_name"
-                        value={formData.last_name}
-                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Phone</Label>
-                      <Input
-                        id="phone"
-                        value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        placeholder="+92 300 1234567"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="designation">Designation</Label>
-                      <Input
-                        id="designation"
-                        value={formData.designation}
-                        onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                        placeholder="Software Engineer"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Department</Label>
-                      <Select
-                        value={formData.department_id}
-                        onValueChange={(value) => setFormData({ ...formData, department_id: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {departments?.map((dept) => (
-                            <SelectItem key={dept.id} value={dept.id}>
-                              {dept.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Branch</Label>
-                      <Select
-                        value={formData.branch_id}
-                        onValueChange={(value) => setFormData({ ...formData, branch_id: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select branch" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {branches?.map((branch) => (
-                            <SelectItem key={branch.id} value={branch.id}>
-                              {branch.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Contract Type</Label>
-                      <Select
-                        value={formData.contract_type}
-                        onValueChange={(value: any) => setFormData({ ...formData, contract_type: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="full_time">Full Time</SelectItem>
-                          <SelectItem value="part_time">Part Time</SelectItem>
-                          <SelectItem value="contract">Contract</SelectItem>
-                          <SelectItem value="intern">Intern</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-end">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={formData.is_field_staff}
-                          onChange={(e) => setFormData({ ...formData, is_field_staff: e.target.checked })}
-                          className="h-4 w-4 rounded border-border"
-                        />
-                        <span className="text-sm">Field Staff (GPS Tracking)</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-4">
-                    <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={createEmployee.isPending}>
-                      {createEmployee.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Add Employee
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button variant="outline" size="icon"><Filter className="h-4 w-4" /></Button>
+            {isAdminOrHr && (
+              <Dialog open={isOpen} onOpenChange={(o) => { setIsOpen(o); if (!o) resetForm(); }}>
+                <DialogTrigger asChild>
+                  <Button><Plus className="mr-2 h-4 w-4" /> Add Employee</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Add New Employee</DialogTitle>
+                    <DialogDescription>Enter the employee details below</DialogDescription>
+                  </DialogHeader>
+                  {renderEmployeeForm(() => createEmployee.mutate(formData), createEmployee.isPending, 'Add Employee')}
+                </DialogContent>
+              </Dialog>
+            )}
           </div>
         </div>
 
-        {/* Employees Table */}
         <div className="rounded-xl border border-border bg-card card-shadow overflow-hidden">
           <Table>
             <TableHeader>
@@ -339,56 +327,50 @@ export default function Employees() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
-                  </TableCell>
-                </TableRow>
+                <TableRow><TableCell colSpan={7} className="h-32 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" /></TableCell></TableRow>
               ) : filteredEmployees?.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                    No employees found
-                  </TableCell>
-                </TableRow>
+                <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">No employees found</TableCell></TableRow>
               ) : (
                 filteredEmployees?.map((employee) => (
                   <TableRow key={employee.id} className="hover:bg-muted/50">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
-                          <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                            {employee.first_name[0]}
-                            {employee.last_name[0]}
-                          </AvatarFallback>
+                          <AvatarFallback className="bg-primary/10 text-primary text-sm">{employee.first_name[0]}{employee.last_name[0]}</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">
-                            {employee.first_name} {employee.last_name}
-                          </p>
+                          <p className="font-medium">{employee.first_name} {employee.last_name}</p>
                           <p className="text-sm text-muted-foreground">{employee.email}</p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <code className="rounded bg-muted px-2 py-1 text-sm">
-                        {employee.employee_code}
-                      </code>
-                    </TableCell>
+                    <TableCell><code className="rounded bg-muted px-2 py-1 text-sm">{employee.employee_code}</code></TableCell>
                     <TableCell>{employee.department?.name || '-'}</TableCell>
                     <TableCell>{employee.branch?.name || '-'}</TableCell>
                     <TableCell>{employee.designation || '-'}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn('capitalize', getStatusColor(employee.employment_status))}
-                      >
+                      <Badge variant="outline" className={cn('capitalize', getStatusColor(employee.employment_status))}>
                         {employee.employment_status.replace('_', ' ')}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {isAdminOrHr && (
+                            <DropdownMenuItem onClick={() => openEdit(employee)}>
+                              <Pencil className="mr-2 h-4 w-4" /> Edit
+                            </DropdownMenuItem>
+                          )}
+                          {isAdmin && (
+                            <DropdownMenuItem onClick={() => setDeleting(employee)} className="text-destructive focus:text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
@@ -397,6 +379,42 @@ export default function Employees() {
           </Table>
         </div>
       </div>
+
+      {/* Edit dialog */}
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) { setEditing(null); resetForm(); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Employee</DialogTitle>
+            <DialogDescription>Update the employee details below</DialogDescription>
+          </DialogHeader>
+          {editing && renderEmployeeForm(
+            () => updateEmployee.mutate({ id: editing.id, data: formData }),
+            updateEmployee.isPending,
+            'Save Changes'
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {deleting?.first_name} {deleting?.last_name} and related records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleting && deleteEmployee.mutate(deleting.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteEmployee.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }
