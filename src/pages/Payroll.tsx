@@ -44,11 +44,14 @@ type EmployeeOption = {
 
 type SalaryStructureRecord = {
   id: string;
+  employee_id: string;
   basic_salary: number;
   housing_allowance: number | null;
   transport_allowance: number | null;
   medical_allowance: number | null;
   other_allowances: number | null;
+  tax_deduction: number | null;
+  other_deductions: number | null;
   employees?: EmployeeOption | null;
 };
 
