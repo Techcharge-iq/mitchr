@@ -59,6 +59,7 @@ export type Database = {
           approved_by: string | null
           created_at: string | null
           employee_id: string
+          expense_date: string | null
           id: string
           monthly_deduction: number
           others: string | null
@@ -76,6 +77,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string | null
           employee_id: string
+          expense_date?: string | null
           id?: string
           monthly_deduction: number
           others?: string | null
@@ -93,6 +95,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string | null
           employee_id?: string
+          expense_date?: string | null
           id?: string
           monthly_deduction?: number
           others?: string | null
