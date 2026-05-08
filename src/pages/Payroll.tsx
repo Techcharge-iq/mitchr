@@ -89,7 +89,7 @@ const tabFromPath = (pathname: string): PayrollTab => {
   return ['salary', 'advances', 'payslips', 'statements'].includes(tab || '') ? (tab as PayrollTab) : 'salary';
 };
 
-const formatCurrency = (value?: number | null) => `Rs. ${(Number(value) || 0).toLocaleString()}`;
+const formatCurrency = (value?: number | null) => `OMR ${(Number(value) || 0).toLocaleString()}`;
 const employeeName = (employee?: EmployeeOption | null) => employee ? `${employee.first_name} ${employee.last_name}` : 'Unassigned employee';
 
 const statusClassName = (status: string) => {
@@ -178,17 +178,23 @@ export default function Payroll() {
     const totals = advances.reduce(
       (acc, advance) => {
         const amount = Number(advance.amount) || 0;
-        const remaining = Number(advance.remaining_amount) || 0;
         if (advance.status === 'pending') acc.pending += 1;
-        if (advance.status === 'approved') acc.approved += amount;
-        if (advance.status === 'rejected') acc.rejected += amount;
-        if (advance.status === 'repaying' || remaining > 0) acc.outstanding += remaining;
+        if (advance.status === 'approved') {
+          acc.approved += amount;
+          acc.outstanding += amount;
+        }
+        if (advance.status === 'rejected') {
+          acc.rejected += amount;
+          acc.outstanding += amount;
+        }
         return acc;
       },
       { pending: 0, approved: 0, rejected: 0, outstanding: 0 },
     );
+    const totalSalaryDeductions = payrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0);
+    totals.outstanding += totalSalaryDeductions;
     return totals;
-  }, [advances]);
+  }, [advances, payrolls]);
 
   const employeeStatements = useMemo(() => employees.map((employee) => {
     const employeeAdvances = advances.filter((advance) => advance.employee_id === employee.id);
@@ -356,7 +362,7 @@ export default function Payroll() {
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="grid gap-2">
-                      <Label>Amount (Rs.)</Label>
+                      <Label>Amount (OMR)</Label>
                       <Input type="number" min="0" value={advanceForm.amount} onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })} />
                     </div>
                     <div className="grid gap-2">
@@ -372,7 +378,7 @@ export default function Payroll() {
                     <Textarea value={advanceForm.others} onChange={(e) => setAdvanceForm({ ...advanceForm, others: e.target.value })} placeholder="Additional remarks / bill details" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Suggested Salary Deduction (Rs.)</Label>
+                    <Label>Suggested Salary Deduction (OMR)</Label>
                     <Input type="number" min="0" value={advanceForm.monthly_deduction} onChange={(e) => setAdvanceForm({ ...advanceForm, monthly_deduction: e.target.value })} placeholder="Optional; defaults to full amount" />
                   </div>
                   <Button onClick={() => createAdvance.mutate()} disabled={!advanceForm.employee_id || !advanceForm.amount || !advanceForm.purpose || createAdvance.isPending} className="w-full">

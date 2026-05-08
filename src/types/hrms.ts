@@ -65,6 +65,7 @@ export interface Employee {
   termination_date: string | null;
   reporting_manager_id: string | null;
   is_field_staff: boolean;
+  account_number: string | null;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;

@@ -64,6 +64,7 @@ type EmployeeForm = {
   branch_id: string;
   contract_type: 'full_time' | 'part_time' | 'contract' | 'intern';
   is_field_staff: boolean;
+  account_number: string;
 };
 
 const emptyForm: EmployeeForm = {
@@ -77,6 +78,7 @@ const emptyForm: EmployeeForm = {
   branch_id: '',
   contract_type: 'full_time',
   is_field_staff: false,
+  account_number: '',
 };
 
 export default function Employees() {
@@ -186,6 +188,7 @@ export default function Employees() {
       branch_id: emp.branch_id || '',
       contract_type: (emp.contract_type as EmployeeForm['contract_type']) || 'full_time',
       is_field_staff: !!emp.is_field_staff,
+      account_number: emp.account_number || '',
     });
   };
 
@@ -231,6 +234,12 @@ export default function Employees() {
           <Label>Phone</Label>
           <Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
         </div>
+        <div className="space-y-2">
+          <Label>Account Number</Label>
+          <Input value={formData.account_number} onChange={(e) => setFormData({ ...formData, account_number: e.target.value })} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Designation</Label>
           <Input value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} />
