@@ -111,6 +111,8 @@ const statusClassName = (status: string) => {
 
 export default function Payroll() {
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [salaryOpen, setSalaryOpen] = useState(false);
+  const [payrollOpen, setPayrollOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
   const [advanceForm, setAdvanceForm] = useState({
     employee_id: '',
@@ -118,6 +120,22 @@ export default function Payroll() {
     purpose: '' as Purpose | '',
     others: '',
     monthly_deduction: '',
+  });
+  const [salaryForm, setSalaryForm] = useState({
+    employee_id: '',
+    basic_salary: '',
+    housing_allowance: '',
+    transport_allowance: '',
+    medical_allowance: '',
+    other_allowances: '',
+    tax_deduction: '',
+    other_deductions: '',
+    working_hours_per_month: '160',
+  });
+  const [payrollForm, setPayrollForm] = useState({
+    month: (new Date().getMonth() + 1).toString(),
+    year: new Date().getFullYear().toString(),
+    employee_ids: [] as string[],
   });
   const location = useLocation();
   const navigate = useNavigate();
@@ -181,20 +199,19 @@ export default function Payroll() {
         if (advance.status === 'pending') acc.pending += 1;
         if (advance.status === 'approved') {
           acc.approved += amount;
-          acc.outstanding += amount;
         }
         if (advance.status === 'rejected') {
           acc.rejected += amount;
-          acc.outstanding += amount;
+        }
+        if (advance.status === 'approved' || advance.status === 'repaying') {
+          acc.outstanding += Number(advance.remaining_amount) || 0;
         }
         return acc;
       },
       { pending: 0, approved: 0, rejected: 0, outstanding: 0 },
     );
-    const totalSalaryDeductions = payrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0);
-    totals.outstanding += totalSalaryDeductions;
     return totals;
-  }, [advances, payrolls]);
+  }, [advances]);
 
   const employeeStatements = useMemo(() => employees.map((employee) => {
     const employeeAdvances = advances.filter((advance) => advance.employee_id === employee.id);
@@ -205,7 +222,9 @@ export default function Payroll() {
       totalAdvances: employeeAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
       approvedExpenses: employeeAdvances.filter((advance) => advance.status === 'approved').reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
       rejectedExpenses: employeeAdvances.filter((advance) => advance.status === 'rejected').reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
-      outstandingBalance: employeeAdvances.reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0),
+      outstandingBalance: employeeAdvances
+        .filter((advance) => advance.status === 'approved' || advance.status === 'repaying')
+        .reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0),
       salaryDeductions: employeePayrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0),
       latestActivity: employeeAdvances[0]?.created_at,
       requestCount: employeeAdvances.length,
@@ -216,44 +235,146 @@ export default function Payroll() {
     ? employeeStatements
     : employeeStatements.filter((statement) => statement.employee.id === selectedEmployeeId);
 
-  const createAdvance = useMutation({
+  const createSalaryStructure = useMutation({
     mutationFn: async () => {
-      const amount = parseFloat(advanceForm.amount);
-      const monthlyDeduction = advanceForm.monthly_deduction ? parseFloat(advanceForm.monthly_deduction) : amount;
-      const { error } = await supabase.from('advances').insert({
-        employee_id: advanceForm.employee_id,
-        amount,
-        monthly_deduction: monthlyDeduction,
-        remaining_amount: amount,
-        reason: advanceForm.others,
-        purpose: advanceForm.purpose,
-        others: advanceForm.others,
-        status: 'pending',
+      const { error } = await supabase.from('salary_structures').insert({
+        employee_id: salaryForm.employee_id,
+        basic_salary: parseFloat(salaryForm.basic_salary),
+        housing_allowance: salaryForm.housing_allowance ? parseFloat(salaryForm.housing_allowance) : null,
+        transport_allowance: salaryForm.transport_allowance ? parseFloat(salaryForm.transport_allowance) : null,
+        medical_allowance: salaryForm.medical_allowance ? parseFloat(salaryForm.medical_allowance) : null,
+        other_allowances: salaryForm.other_allowances ? parseFloat(salaryForm.other_allowances) : null,
+        tax_deduction: salaryForm.tax_deduction ? parseFloat(salaryForm.tax_deduction) : null,
+        other_deductions: salaryForm.other_deductions ? parseFloat(salaryForm.other_deductions) : null,
+        working_hours_per_month: parseInt(salaryForm.working_hours_per_month),
+        effective_from: new Date().toISOString().split('T')[0],
+        is_active: true,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['advances'] });
-      toast.success('Employee advance / expense request submitted');
-      setAdvanceOpen(false);
-      setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', monthly_deduction: '' });
+      queryClient.invalidateQueries({ queryKey: ['salary-structures'] });
+      toast.success('Salary structure created successfully');
+      setSalaryOpen(false);
+      setSalaryForm({
+        employee_id: '',
+        basic_salary: '',
+        housing_allowance: '',
+        transport_allowance: '',
+        medical_allowance: '',
+        other_allowances: '',
+        tax_deduction: '',
+        other_deductions: '',
+        working_hours_per_month: '160',
+      });
     },
-    onError: () => toast.error('Failed to submit request'),
+    onError: (e: Error) => toast.error(e.message),
   });
 
-  const updateAdvanceWorkflow = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: 'approved' | 'rejected' | 'salary_deduction' }) => {
-      const payload = action === 'salary_deduction'
-        ? { status: 'repaying' as const, start_deduction_date: format(new Date(), 'yyyy-MM-dd'), salary_adjusted_at: new Date().toISOString() }
-        : { status: action, approved_at: action === 'approved' ? new Date().toISOString() : null, salary_adjusted_at: null };
-      const { error } = await supabase.from('advances').update(payload).eq('id', id);
+  const generatePayroll = useMutation({
+    mutationFn: async () => {
+      const month = parseInt(payrollForm.month);
+      const year = parseInt(payrollForm.year);
+      
+      // Get attendance data for the month
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('employee_id, status')
+        .gte('date', `${year}-${month.toString().padStart(2, '0')}-01`)
+        .lt('date', `${year}-${(month + 1).toString().padStart(2, '0')}-01`);
+
+      // Calculate attendance deductions
+      const attendanceSummary = attendanceData?.reduce((acc, record) => {
+        if (!acc[record.employee_id]) acc[record.employee_id] = { present: 0, absent: 0, half_day: 0 };
+        if (record.status === 'present') acc[record.employee_id].present++;
+        else if (record.status === 'absent') acc[record.employee_id].absent++;
+        else if (record.status === 'half_day') acc[record.employee_id].half_day++;
+        return acc;
+      }, {} as Record<string, { present: number; absent: number; half_day: number }>) || {};
+
+      const payrollInserts = payrollForm.employee_ids.map(employeeId => {
+        const salaryStructure = salaryStructures.find(s => s.employee_id === employeeId);
+        if (!salaryStructure) throw new Error(`No salary structure found for employee ${employeeId}`);
+
+        const attendance = attendanceSummary[employeeId] || { present: 0, absent: 0, half_day: 0 };
+        const totalDays = attendance.present + attendance.absent + attendance.half_day;
+        const workingDays = totalDays || 22; // Default to 22 working days if no attendance data
+        const dailyRate = salaryStructure.basic_salary / workingDays;
+        const attendanceDeduction = (attendance.absent * dailyRate) + (attendance.half_day * dailyRate * 0.5);
+
+        // Calculate advance deduction for this month
+        const employeeAdvances = advances.filter(a => 
+          a.employee_id === employeeId && 
+          (a.status === 'repaying' || a.status === 'approved') &&
+          a.remaining_amount > 0
+        );
+        const advanceDeduction = employeeAdvances.reduce((sum, advance) => 
+          Math.min(sum + (advance.monthly_deduction || advance.amount), advance.remaining_amount), 0
+        );
+
+        const grossSalary = salaryStructure.basic_salary + 
+          (salaryStructure.housing_allowance || 0) + 
+          (salaryStructure.transport_allowance || 0) + 
+          (salaryStructure.medical_allowance || 0) + 
+          (salaryStructure.other_allowances || 0);
+
+        const totalDeductions = attendanceDeduction + advanceDeduction + 
+          (salaryStructure.tax_deduction || 0) + 
+          (salaryStructure.other_deductions || 0);
+
+        const netSalary = grossSalary - totalDeductions;
+
+        return {
+          employee_id: employeeId,
+          month,
+          year,
+          gross_salary: grossSalary,
+          attendance_deduction: attendanceDeduction,
+          advance_deduction: advanceDeduction,
+          tax_deduction: salaryStructure.tax_deduction || null,
+          other_deductions: salaryStructure.other_deductions || null,
+          net_salary: netSalary,
+          status: 'pending',
+        };
+      });
+
+      const { error } = await supabase.from('payroll').insert(payrollInserts);
       if (error) throw error;
+
+      // Update advance remaining amounts
+      for (const employeeId of payrollForm.employee_ids) {
+        const employeeAdvances = advances.filter(a => 
+          a.employee_id === employeeId && 
+          (a.status === 'repaying' || a.status === 'approved') &&
+          a.remaining_amount > 0
+        );
+
+        for (const advance of employeeAdvances) {
+          const deduction = Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount);
+          const newRemaining = advance.remaining_amount - deduction;
+          
+          await supabase
+            .from('advances')
+            .update({ 
+              remaining_amount: newRemaining,
+              status: newRemaining <= 0 ? 'completed' : advance.status
+            })
+            .eq('id', advance.id);
+        }
+      }
     },
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrolls'] });
       queryClient.invalidateQueries({ queryKey: ['advances'] });
-      toast.success(variables.action === 'salary_deduction' ? 'Moved to salary deduction' : 'Request status updated');
+      toast.success('Payroll generated successfully');
+      setPayrollOpen(false);
+      setPayrollForm({
+        month: (new Date().getMonth() + 1).toString(),
+        year: new Date().getFullYear().toString(),
+        employee_ids: [],
+      });
     },
-    onError: () => toast.error('Failed to update request'),
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const renderWorkflowActions = (advance: AdvanceRecord) => (
@@ -291,12 +412,79 @@ export default function Payroll() {
         </TabsList>
 
         <TabsContent value="salary" className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Salary Structures</h2>
+              <p className="text-sm text-muted-foreground">Current active salary packages used during payroll processing.</p>
+            </div>
+            <Dialog open={salaryOpen} onOpenChange={setSalaryOpen}>
+              <DialogTrigger asChild>
+                <Button className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Create Salary Structure</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Create Salary Structure</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 pt-4">
+                  <div className="grid gap-2">
+                    <Label>Employee *</Label>
+                    <Select value={salaryForm.employee_id} onValueChange={(v) => setSalaryForm({ ...salaryForm, employee_id: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                      <SelectContent>
+                        {employees.map((e) => <SelectItem key={e.id} value={e.id}>{employeeName(e)} ({e.employee_code})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Basic Salary (OMR) *</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.basic_salary} onChange={(e) => setSalaryForm({ ...salaryForm, basic_salary: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Housing Allowance (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.housing_allowance} onChange={(e) => setSalaryForm({ ...salaryForm, housing_allowance: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Transport Allowance (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.transport_allowance} onChange={(e) => setSalaryForm({ ...salaryForm, transport_allowance: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Medical Allowance (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.medical_allowance} onChange={(e) => setSalaryForm({ ...salaryForm, medical_allowance: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Other Allowances (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.other_allowances} onChange={(e) => setSalaryForm({ ...salaryForm, other_allowances: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Tax Deduction (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.tax_deduction} onChange={(e) => setSalaryForm({ ...salaryForm, tax_deduction: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Other Deductions (OMR)</Label>
+                      <Input type="number" min="0" step="0.01" value={salaryForm.other_deductions} onChange={(e) => setSalaryForm({ ...salaryForm, other_deductions: e.target.value })} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Working Hours/Month</Label>
+                      <Input type="number" min="1" value={salaryForm.working_hours_per_month} onChange={(e) => setSalaryForm({ ...salaryForm, working_hours_per_month: e.target.value })} />
+                    </div>
+                  </div>
+                  <Button onClick={() => createSalaryStructure.mutate()} disabled={!salaryForm.employee_id || !salaryForm.basic_salary || createSalaryStructure.isPending} className="w-full">
+                    Create Salary Structure
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Salary Structures</CardTitle>
-              <CardDescription>Current active salary packages used during payroll processing.</CardDescription>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="overflow-x-auto pt-6">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -305,12 +493,15 @@ export default function Payroll() {
                     <TableHead>Housing</TableHead>
                     <TableHead>Transport</TableHead>
                     <TableHead>Medical</TableHead>
+                    <TableHead>Other Allow.</TableHead>
+                    <TableHead>Tax Ded.</TableHead>
+                    <TableHead>Other Ded.</TableHead>
                     <TableHead>Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {salaryStructures.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No salary structures found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">No salary structures found</TableCell></TableRow>
                   ) : (
                     salaryStructures.map((s) => (
                       <TableRow key={s.id}>
@@ -319,7 +510,10 @@ export default function Payroll() {
                         <TableCell>{formatCurrency(s.housing_allowance)}</TableCell>
                         <TableCell>{formatCurrency(s.transport_allowance)}</TableCell>
                         <TableCell>{formatCurrency(s.medical_allowance)}</TableCell>
-                        <TableCell className="font-semibold">{formatCurrency((s.basic_salary || 0) + (s.housing_allowance || 0) + (s.transport_allowance || 0) + (s.medical_allowance || 0) + (s.other_allowances || 0))}</TableCell>
+                        <TableCell>{formatCurrency(s.other_allowances)}</TableCell>
+                        <TableCell>{formatCurrency(s.tax_deduction)}</TableCell>
+                        <TableCell>{formatCurrency(s.other_deductions)}</TableCell>
+                        <TableCell className="font-semibold">{formatCurrency((s.basic_salary || 0) + (s.housing_allowance || 0) + (s.transport_allowance || 0) + (s.medical_allowance || 0) + (s.other_allowances || 0) - (s.tax_deduction || 0) - (s.other_deductions || 0))}</TableCell>
                       </TableRow>
                     ))
                   )}
@@ -432,6 +626,90 @@ export default function Payroll() {
         </TabsContent>
 
         <TabsContent value="payslips">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Payslips</h2>
+              <p className="text-sm text-muted-foreground">Generate and manage monthly payroll for employees.</p>
+            </div>
+            <Dialog open={payrollOpen} onOpenChange={setPayrollOpen}>
+              <DialogTrigger asChild>
+                <Button className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Generate Payroll</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Generate Payroll</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 pt-4">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Month</Label>
+                      <Select value={payrollForm.month} onValueChange={(v) => setPayrollForm({ ...payrollForm, month: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <SelectItem key={i + 1} value={(i + 1).toString()}>
+                              {format(new Date(2024, i), 'MMMM')}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Year</Label>
+                      <Select value={payrollForm.year} onValueChange={(v) => setPayrollForm({ ...payrollForm, year: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 5 }, (_, i) => (
+                            <SelectItem key={new Date().getFullYear() - 2 + i} value={(new Date().getFullYear() - 2 + i).toString()}>
+                              {new Date().getFullYear() - 2 + i}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Select Employees</Label>
+                    <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-2">
+                      {employees.map((employee) => (
+                        <div key={employee.id} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={employee.id}
+                            checked={payrollForm.employee_ids.includes(employee.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setPayrollForm({
+                                  ...payrollForm,
+                                  employee_ids: [...payrollForm.employee_ids, employee.id]
+                                });
+                              } else {
+                                setPayrollForm({
+                                  ...payrollForm,
+                                  employee_ids: payrollForm.employee_ids.filter(id => id !== employee.id)
+                                });
+                              }
+                            }}
+                          />
+                          <label htmlFor={employee.id} className="text-sm">
+                            {employeeName(employee)} ({employee.employee_code})
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={() => generatePayroll.mutate()} 
+                    disabled={payrollForm.employee_ids.length === 0 || generatePayroll.isPending} 
+                    className="w-full"
+                  >
+                    Generate Payroll
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Recent Payslips</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
