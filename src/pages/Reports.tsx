@@ -1,14 +1,20 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BarChart3, Users, Clock, Calendar, Wallet, MapPin, FileDown } from 'lucide-react';
+import { BarChart3, Users, Clock, Calendar, Wallet, MapPin, FileDown, TrendingUp, DollarSign } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { useState } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--destructive))', 'hsl(var(--accent))'];
 
 export default function Reports() {
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const { data: employeeStats } = useQuery({
     queryKey: ['employee-stats'],
     queryFn: async () => {
@@ -76,11 +82,74 @@ export default function Reports() {
     },
   });
 
+  const { data: employees = [] } = useQuery({
+    queryKey: ['employees-list'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, employee_code')
+        .eq('employment_status', 'active')
+        .order('first_name');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: expenseStats } = useQuery({
+    queryKey: ['expense-stats', selectedYear, selectedEmployees],
+    queryFn: async () => {
+      let query = supabase
+        .from('advances')
+        .select('amount, purpose, expense_date, employee_id, employees(first_name, last_name)')
+        .eq('status', 'approved')
+        .gte('expense_date', `${selectedYear}-01-01`)
+        .lte('expense_date', `${selectedYear}-12-31`);
+
+      if (selectedEmployees.length > 0) {
+        query = query.in('employee_id', selectedEmployees);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      // Group by month and category
+      const monthlyData: Record<string, Record<string, number>> = {};
+      const categoryData: Record<string, number> = {};
+
+      data?.forEach((expense) => {
+        const month = new Date(expense.expense_date).toLocaleString('default', { month: 'short' });
+        const category = expense.purpose || 'Personal Advance';
+        
+        if (!monthlyData[month]) monthlyData[month] = {};
+        monthlyData[month][category] = (monthlyData[month][category] || 0) + expense.amount;
+        
+        categoryData[category] = (categoryData[category] || 0) + expense.amount;
+      });
+
+      const monthlyChartData = Object.entries(monthlyData).map(([month, categories]) => ({
+        month,
+        ...categories,
+      }));
+
+      const categoryChartData = Object.entries(categoryData).map(([name, value]) => ({
+        name,
+        value,
+      }));
+
+      return {
+        monthly: monthlyChartData,
+        categories: categoryChartData,
+        total: data?.reduce((sum, expense) => sum + expense.amount, 0) || 0,
+      };
+    },
+  });
+
   const reports = [
     { title: 'Employee Report', description: 'Detailed employee headcount and demographics', icon: Users },
     { title: 'Attendance Report', description: 'Daily, weekly, and monthly attendance summary', icon: Clock },
     { title: 'Leave Report', description: 'Leave utilization and balance report', icon: Calendar },
     { title: 'Payroll Report', description: 'Salary disbursement and deductions summary', icon: Wallet },
+    { title: 'Expense Report', description: 'Monthly spending analysis by category and employee', icon: TrendingUp },
     { title: 'GPS Activity Report', description: 'Field staff movement and location history', icon: MapPin },
   ];
 
@@ -188,6 +257,108 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
-  );
-}
+
+      {/* Expense Reports */}
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" /> Expense Reports
+            </CardTitle>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex items-center gap-2">
+                <Label>Year:</Label>
+                <Select value={selectedYear} onValueChange={setSelectedYear}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <SelectItem key={new Date().getFullYear() - 2 + i} value={(new Date().getFullYear() - 2 + i).toString()}>
+                        {new Date().getFullYear() - 2 + i}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label>Employees:</Label>
+                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto border rounded-md p-2">
+                  {employees.map((employee) => (
+                    <div key={employee.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={employee.id}
+                        checked={selectedEmployees.includes(employee.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedEmployees([...selectedEmployees, employee.id]);
+                          } else {
+                            setSelectedEmployees(selectedEmployees.filter(id => id !== employee.id));
+                          }
+                        }}
+                      />
+                      <Label htmlFor={employee.id} className="text-sm">
+                        {employee.first_name} {employee.last_name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {selectedEmployees.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setSelectedEmployees([])}>
+                    Clear All
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Monthly Spending by Category</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={expenseStats?.monthly}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip formatter={(value) => [`OMR ${value}`, '']} />
+                      <Bar dataKey="Food" stackId="a" fill="hsl(var(--primary))" />
+                      <Bar dataKey="Petrol" stackId="a" fill="hsl(var(--success))" />
+                      <Bar dataKey="Personal Advance" stackId="a" fill="hsl(var(--warning))" />
+                      <Bar dataKey="Office Expenses" stackId="a" fill="hsl(var(--destructive))" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Spending by Category</CardTitle>
+                  <p className="text-sm text-muted-foreground">Total: OMR {expenseStats?.total?.toLocaleString() || 0}</p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={expenseStats?.categories}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        dataKey="value"
+                        label={({ name, value }) => `${name}: OMR ${value}`}
+                      >
+                        {expenseStats?.categories?.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [`OMR ${value}`, '']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+          </CardContent>
+        </Card>
+      </div>

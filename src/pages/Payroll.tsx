@@ -76,6 +76,7 @@ type AdvanceRecord = {
   reason: string | null;
   purpose?: string | null;
   others?: string | null;
+  expense_date: string;
   status: AdvanceStatus | null;
   approved_at: string | null;
   salary_adjusted_at?: string | null;
@@ -119,6 +120,7 @@ export default function Payroll() {
     amount: '',
     purpose: '' as Purpose | '',
     others: '',
+    expense_date: format(new Date(), 'yyyy-MM-dd'),
     monthly_deduction: '',
   });
   const [salaryForm, setSalaryForm] = useState({
@@ -269,6 +271,32 @@ export default function Payroll() {
       });
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const createAdvance = useMutation({
+    mutationFn: async () => {
+      const amount = parseFloat(advanceForm.amount);
+      const monthlyDeduction = advanceForm.monthly_deduction ? parseFloat(advanceForm.monthly_deduction) : amount;
+      const { error } = await supabase.from('advances').insert({
+        employee_id: advanceForm.employee_id,
+        amount,
+        monthly_deduction: monthlyDeduction,
+        remaining_amount: amount,
+        reason: advanceForm.others,
+        purpose: advanceForm.purpose,
+        others: advanceForm.others,
+        expense_date: advanceForm.expense_date,
+        status: 'pending',
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Employee advance / expense request submitted');
+      setAdvanceOpen(false);
+      setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', expense_date: format(new Date(), 'yyyy-MM-dd'), monthly_deduction: '' });
+    },
+    onError: () => toast.error('Failed to submit request'),
   });
 
   const generatePayroll = useMutation({
@@ -560,11 +588,8 @@ export default function Payroll() {
                       <Input type="number" min="0" value={advanceForm.amount} onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })} />
                     </div>
                     <div className="grid gap-2">
-                      <Label>Purpose</Label>
-                      <Select value={advanceForm.purpose} onValueChange={(v: Purpose) => setAdvanceForm({ ...advanceForm, purpose: v })}>
-                        <SelectTrigger><SelectValue placeholder="Select purpose" /></SelectTrigger>
-                        <SelectContent>{PURPOSES.map((purpose) => <SelectItem key={purpose} value={purpose}>{purpose}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <Label>Expense Date *</Label>
+                      <Input type="date" value={advanceForm.expense_date} onChange={(e) => setAdvanceForm({ ...advanceForm, expense_date: e.target.value })} />
                     </div>
                   </div>
                   <div className="grid gap-2">
@@ -588,14 +613,15 @@ export default function Payroll() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Employee</TableHead><TableHead>Purpose</TableHead><TableHead>Amount</TableHead><TableHead>Monthly Deduction</TableHead><TableHead>Remaining</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead>
+                    <TableHead>Employee</TableHead><TableHead>Purpose</TableHead><TableHead>Expense Date</TableHead><TableHead>Amount</TableHead><TableHead>Monthly Deduction</TableHead><TableHead>Remaining</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {advances.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No requests found</TableCell></TableRow> : advances.map((advance) => (
+                  {advances.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No requests found</TableCell></TableRow> : advances.map((advance) => (
                     <TableRow key={advance.id}>
                       <TableCell className="font-medium">{employeeName(advance.employees)}<div className="text-xs text-muted-foreground">{advance.employees?.employee_code}</div></TableCell>
                       <TableCell>{advance.purpose || advance.reason || 'Personal Advance'}<div className="max-w-56 truncate text-xs text-muted-foreground">{advance.others || advance.reason}</div></TableCell>
+                      <TableCell>{format(new Date(advance.expense_date), 'dd MMM yyyy')}</TableCell>
                       <TableCell>{formatCurrency(advance.amount)}</TableCell>
                       <TableCell>{formatCurrency(advance.monthly_deduction)}</TableCell>
                       <TableCell>{formatCurrency(advance.remaining_amount)}</TableCell>
