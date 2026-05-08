@@ -219,17 +219,30 @@ export default function Payroll() {
     const employeeAdvances = advances.filter((advance) => advance.employee_id === employee.id);
     const employeePayrolls = payrolls.filter((payroll) => payroll.employee_id === employee.id);
 
+    const approvedExpenseAmount = employeeAdvances
+      .filter((advance) => advance.status === 'approved' && advance.purpose !== 'Personal Advance')
+      .reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
+
+    const rejectedExpenseAmount = employeeAdvances
+      .filter((advance) => advance.status === 'rejected' && advance.purpose !== 'Personal Advance')
+      .reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
+
+    const totalAdvanceAmount = employeeAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
+
+    const outstandingBalance = employeeAdvances
+      .filter((advance) => advance.status === 'approved' || advance.status === 'repaying')
+      .reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0);
+
     return {
       employee,
-      totalAdvances: employeeAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
-      approvedExpenses: employeeAdvances.filter((advance) => advance.status === 'approved').reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
-      rejectedExpenses: employeeAdvances.filter((advance) => advance.status === 'rejected').reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0),
-      outstandingBalance: employeeAdvances
-        .filter((advance) => advance.status === 'approved' || advance.status === 'repaying')
-        .reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0),
+      totalAdvances: totalAdvanceAmount,
+      approvedExpenses: approvedExpenseAmount,
+      rejectedExpenses: rejectedExpenseAmount,
+      outstandingBalance,
       salaryDeductions: employeePayrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0),
       latestActivity: employeeAdvances[0]?.created_at,
       requestCount: employeeAdvances.length,
+      netOutstanding: outstandingBalance - approvedExpenseAmount + rejectedExpenseAmount,
     };
   }), [advances, employees, payrolls]);
 
@@ -755,10 +768,10 @@ export default function Payroll() {
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Advances</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Requests</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead></TableRow></TableHeader>
                 <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
-                  const remaining = statement.outstandingBalance - statement.salaryDeductions;
-                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.outstandingBalance)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell></TableRow>;
+                  const remaining = statement.netOutstanding - statement.salaryDeductions;
+                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.netOutstanding)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell></TableRow>;
                 })}</TableBody>
               </Table>
             </CardContent>
