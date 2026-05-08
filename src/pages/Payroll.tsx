@@ -634,7 +634,7 @@ export default function Payroll() {
                     <TableRow key={advance.id}>
                       <TableCell className="font-medium">{employeeName(advance.employees)}<div className="text-xs text-muted-foreground">{advance.employees?.employee_code}</div></TableCell>
                       <TableCell>{advance.purpose || advance.reason || 'Personal Advance'}<div className="max-w-56 truncate text-xs text-muted-foreground">{advance.others || advance.reason}</div></TableCell>
-                      <TableCell>{format(new Date(advance.expense_date), 'dd MMM yyyy')}</TableCell>
+                      <TableCell>{(() => { const d = advance.expense_date || advance.created_at; const dt = d ? new Date(d) : null; return dt && !isNaN(dt.getTime()) ? format(dt, 'dd MMM yyyy') : '-'; })()}</TableCell>
                       <TableCell>{formatCurrency(advance.amount)}</TableCell>
                       <TableCell>{formatCurrency(advance.monthly_deduction)}</TableCell>
                       <TableCell>{formatCurrency(advance.remaining_amount)}</TableCell>
