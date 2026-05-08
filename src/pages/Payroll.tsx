@@ -44,11 +44,14 @@ type EmployeeOption = {
 
 type SalaryStructureRecord = {
   id: string;
+  employee_id: string;
   basic_salary: number;
   housing_allowance: number | null;
   transport_allowance: number | null;
   medical_allowance: number | null;
   other_allowances: number | null;
+  tax_deduction: number | null;
+  other_deductions: number | null;
   employees?: EmployeeOption | null;
 };
 
@@ -312,6 +315,28 @@ export default function Payroll() {
     onError: () => toast.error('Failed to submit request'),
   });
 
+  const updateAdvanceWorkflow = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: 'approved' | 'rejected' | 'salary_deduction' }) => {
+      const patch: Record<string, any> =
+        action === 'approved'
+          ? { status: 'approved', approved_at: new Date().toISOString() }
+          : action === 'rejected'
+          ? { status: 'rejected', approved_at: new Date().toISOString() }
+          : {
+              status: 'repaying',
+              salary_adjusted_at: new Date().toISOString(),
+              start_deduction_date: new Date().toISOString().split('T')[0],
+            };
+      const { error } = await supabase.from('advances').update(patch).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Request updated');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const generatePayroll = useMutation({
     mutationFn: async () => {
       const month = parseInt(payrollForm.month);
@@ -369,11 +394,12 @@ export default function Payroll() {
           employee_id: employeeId,
           month,
           year,
+          basic_salary: salaryStructure.basic_salary,
           gross_salary: grossSalary,
           attendance_deduction: attendanceDeduction,
           advance_deduction: advanceDeduction,
-          tax_deduction: salaryStructure.tax_deduction || null,
-          other_deductions: salaryStructure.other_deductions || null,
+          tax_deduction: salaryStructure.tax_deduction || 0,
+          other_deductions: salaryStructure.other_deductions || 0,
           net_salary: netSalary,
           status: 'pending',
         };
