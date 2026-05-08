@@ -105,10 +105,8 @@ export default function Reports() {
     queryFn: async () => {
       let query = supabase
         .from('advances')
-        .select('amount, purpose, expense_date, status, employee_id, employees(first_name, last_name)')
-        .in('status', ['approved', 'rejected'])
-        .gte('expense_date', `${selectedYear}-01-01`)
-        .lte('expense_date', `${selectedYear}-12-31`);
+        .select('amount, purpose, expense_date, status, employee_id, created_at, employees(first_name, last_name)')
+        .in('status', ['approved', 'rejected']);
 
       if (selectedEmployees.length > 0) {
         query = query.in('employee_id', selectedEmployees);
@@ -117,14 +115,19 @@ export default function Reports() {
       const { data, error } = await query;
       if (error) throw error;
 
-      // Group by month and category for approved expenses only
+      const yearNum = parseInt(selectedYear, 10);
       const monthlyData: Record<string, Record<string, number>> = {};
       const categoryData: Record<string, number> = {};
       let totalApproved = 0;
       let totalRejected = 0;
 
-      data?.forEach((expense) => {
-        const month = new Date(expense.expense_date).toLocaleString('default', { month: 'short' });
+      data?.forEach((expense: any) => {
+        const raw = expense.expense_date || expense.created_at;
+        const dt = raw ? new Date(raw) : null;
+        if (!dt || isNaN(dt.getTime())) return;
+        if (dt.getFullYear() !== yearNum) return;
+
+        const month = dt.toLocaleString('default', { month: 'short' });
         const category = expense.purpose || 'Personal Advance';
         const amount = Number(expense.amount) || 0;
 
@@ -134,7 +137,6 @@ export default function Reports() {
           categoryData[category] = (categoryData[category] || 0) + amount;
           totalApproved += amount;
         }
-
         if (expense.status === 'rejected') {
           totalRejected += amount;
         }
