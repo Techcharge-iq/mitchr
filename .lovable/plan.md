@@ -1,45 +1,65 @@
-## Problem
+## Goals
 
-`Reports.tsx` queries `advances.expense_date`, but that column doesn't exist in the database. Result: the query returns a `SelectQueryError`, type checks fail, and any chart that depends on `expense_date` either crashes (Invalid Date) or shows wrong totals. `Payroll.tsx` also writes `expense_date` on insert, so the value is being silently dropped today.
+1. Add a missing **Purpose** selector to the "New Request" form on the Employee Advances & Expenses page.
+2. Allow **Admin only** to **edit and delete**:
+   - Employee Advances & Expenses (rows on the Advances tab)
+   - Payslips (rows on the Payslips tab)
 
-## Fix (stay on Lovable Cloud)
+Stay on Lovable Cloud. UI/business-logic only — no DB schema changes (existing `advances` and `payroll` tables already support update/delete via RLS for admin/HR/accountant; we'll restrict UI to admin role).
 
-### 1. Database migration — add the missing column
+---
 
-Add `expense_date` to `public.advances` so the frontend and backend agree:
+## Changes — `src/pages/Payroll.tsx`
 
-- Add column `expense_date date` (nullable).
-- Backfill existing rows with `created_at::date` so historical data shows up in the right month.
-- No RLS changes needed (existing policies already cover the table).
+### 1. Purpose field in New Request dialog
+The form state already has `purpose` (typed `Purpose | ''`) and the submit button already disables when empty, but the `<Select>` UI is missing. Add it directly above the Amount/Expense Date row inside the advances dialog (around line 624):
 
-### 2. `src/pages/Reports.tsx` — guard the query and the UI
+```tsx
+<div className="grid gap-2">
+  <Label>Purpose *</Label>
+  <Select value={advanceForm.purpose} onValueChange={(v) => setAdvanceForm({ ...advanceForm, purpose: v as Purpose })}>
+    <SelectTrigger><SelectValue placeholder="Select purpose" /></SelectTrigger>
+    <SelectContent>
+      {PURPOSES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+    </SelectContent>
+  </Select>
+</div>
+```
 
-- Keep the `expense_date` selection but treat it as optional.
-- Use `created_at` as a fallback when `expense_date` is null (covers any row written before the migration).
-- Replace the bare `new Date(expense.expense_date)` with a safe parser that:
-  - returns `null` for missing/invalid values,
-  - skips the row from monthly aggregation when invalid (still counted in totals if status is approved/rejected, just not bucketed by month).
-- Keep date-range filters on `expense_date` but also accept rows where it's null by widening to `or(expense_date.gte.…,and(expense_date.is.null,created_at.gte.…))`. Simpler equivalent: filter client-side after fetching the year window using whichever of the two dates is present.
-- No UI/visual changes — same cards, same charts, same labels.
+### 2. Admin-only Edit / Delete
 
-### 3. `src/pages/Payroll.tsx` — small consistency tweaks (no UI change)
+- Import `useAuth` from `@/hooks/useAuth` and read `userRole`. Compute `const isAdmin = userRole === 'admin'`.
 
-- The form already sends `expense_date`; once the column exists the insert just works.
-- Line 637 already falls back to `created_at` for display — keep as-is.
+- **Advances — Edit**
+  - Add `editingAdvance: AdvanceRecord | null` state and reuse the existing advance dialog (refactor: when `editingAdvance` is set, the dialog title becomes "Edit Request", inputs are prefilled, and submit calls `updateAdvance.mutate()` instead of `createAdvance.mutate()`).
+  - New `updateAdvance` mutation: `supabase.from('advances').update({ amount, monthly_deduction, purpose, others, expense_date }).eq('id', editingAdvance.id)`.
 
-## What stays the same
+- **Advances — Delete**
+  - New `deleteAdvance` mutation: `supabase.from('advances').delete().eq('id', id)`. Wrap trigger in `AlertDialog` (confirm "Delete this request?").
 
-- All other tables, RLS policies, edge functions, auth, and UI.
-- Lovable Cloud remains the backend.
-- No changes to Payroll calculations, OT rules (300 hrs/month), or any other module.
+- Render Edit/Delete buttons inside `renderWorkflowActions(advance)` only when `isAdmin === true`. Same buttons added to the mobile card list.
 
-## Files touched
+- **Payslips — Edit**
+  - Add `editingPayroll: PayrollRecord | null` state + a small dialog (Edit Payslip) with fields: `gross_salary`, `attendance_deduction`, `advance_deduction`, `tax_deduction`, `other_deductions`, `status` (draft/pending/paid). On save, recompute `net_salary = gross_salary - sum(deductions)` and update the row.
+  - Mutation: `supabase.from('payroll').update({...}).eq('id', editingPayroll.id)`.
 
-- New migration: add `expense_date` column to `advances` + backfill.
-- `src/pages/Reports.tsx`: safe date parsing + fallback to `created_at`.
+- **Payslips — Delete**
+  - New `deletePayroll` mutation: `supabase.from('payroll').delete().eq('id', id)`, wrapped in `AlertDialog` confirm.
+
+- In the Recent Payslips table, add a new "Actions" column (rendered only when `isAdmin`) with Edit and Delete buttons. Hide the column entirely for non-admins.
+
+### 3. Cache invalidation & toasts
+All new mutations invalidate `['advances']` or `['payrolls']` and show success/error toasts via `sonner`, matching existing patterns.
+
+---
 
 ## Verification
 
-- Reports page loads with no runtime error even when `expense_date` is null.
-- New advance requests created from Payroll save the picked date and appear in the correct month bucket on Reports.
-- Year filter and employee filter on Reports continue to work.
+- Open `/payroll/advances` → "New Request" → confirm Purpose dropdown shows Food / Petrol / Personal Advance / Office Expenses, and Submit stays disabled until selected.
+- As an admin user, confirm Edit + Delete buttons appear on advances rows and payslip rows; clicking Edit opens a prefilled dialog, Save updates the row, Delete asks for confirmation then removes the row.
+- As a non-admin (employee/hr/manager/accountant), confirm Edit/Delete are not rendered.
+- After edits, totals on the Statements tab and summary cards refresh automatically.
+
+## Files touched
+
+- `src/pages/Payroll.tsx` (only file)
