@@ -363,6 +363,115 @@ export default function Payroll() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const updateAdvance = useMutation({
+    mutationFn: async () => {
+      if (!editingAdvance) return;
+      const amount = parseFloat(advanceForm.amount);
+      const monthlyDeduction = advanceForm.monthly_deduction ? parseFloat(advanceForm.monthly_deduction) : amount;
+      const { error } = await supabase
+        .from('advances')
+        .update({
+          amount,
+          monthly_deduction: monthlyDeduction,
+          purpose: advanceForm.purpose,
+          others: advanceForm.others,
+          reason: advanceForm.others,
+          expense_date: advanceForm.expense_date,
+        })
+        .eq('id', editingAdvance.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Request updated');
+      setAdvanceOpen(false);
+      setEditingAdvance(null);
+      setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', expense_date: format(new Date(), 'yyyy-MM-dd'), monthly_deduction: '' });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteAdvance = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('advances').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Request deleted');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updatePayroll = useMutation({
+    mutationFn: async () => {
+      if (!editingPayroll) return;
+      const gross = parseFloat(payslipEditForm.gross_salary) || 0;
+      const att = parseFloat(payslipEditForm.attendance_deduction) || 0;
+      const adv = parseFloat(payslipEditForm.advance_deduction) || 0;
+      const tax = parseFloat(payslipEditForm.tax_deduction) || 0;
+      const oth = parseFloat(payslipEditForm.other_deductions) || 0;
+      const net = gross - att - adv - tax - oth;
+      const { error } = await supabase
+        .from('payroll')
+        .update({
+          gross_salary: gross,
+          attendance_deduction: att,
+          advance_deduction: adv,
+          tax_deduction: tax,
+          other_deductions: oth,
+          net_salary: net,
+          status: payslipEditForm.status,
+          paid_at: payslipEditForm.status === 'paid' ? new Date().toISOString() : null,
+        })
+        .eq('id', editingPayroll.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrolls'] });
+      toast.success('Payslip updated');
+      setEditingPayroll(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deletePayroll = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('payroll').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrolls'] });
+      toast.success('Payslip deleted');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openEditAdvance = (advance: AdvanceRecord) => {
+    setEditingAdvance(advance);
+    setAdvanceForm({
+      employee_id: advance.employee_id,
+      amount: String(advance.amount ?? ''),
+      purpose: (advance.purpose as Purpose) || '',
+      others: advance.others || advance.reason || '',
+      expense_date: advance.expense_date || format(new Date(), 'yyyy-MM-dd'),
+      monthly_deduction: String(advance.monthly_deduction ?? ''),
+    });
+    setAdvanceOpen(true);
+  };
+
+  const openEditPayroll = (p: PayrollRecord) => {
+    setEditingPayroll(p);
+    setPayslipEditForm({
+      gross_salary: String(p.gross_salary ?? ''),
+      attendance_deduction: String(p.attendance_deduction ?? 0),
+      advance_deduction: String(p.advance_deduction ?? 0),
+      tax_deduction: String(p.tax_deduction ?? 0),
+      other_deductions: String(p.other_deductions ?? 0),
+      status: p.status || 'draft',
+    });
+  };
+
   const generatePayroll = useMutation({
     mutationFn: async () => {
       const month = parseInt(payrollForm.month);
