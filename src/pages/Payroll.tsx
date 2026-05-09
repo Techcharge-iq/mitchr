@@ -973,6 +973,52 @@ export default function Payroll() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!editingPayroll} onOpenChange={(o) => { if (!o) setEditingPayroll(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader><DialogTitle>Edit Payslip</DialogTitle></DialogHeader>
+          <div className="grid gap-4 pt-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Gross Salary (OMR)</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.gross_salary} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, gross_salary: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={payslipEditForm.status} onValueChange={(v) => setPayslipEditForm({ ...payslipEditForm, status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Attendance Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.attendance_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, attendance_deduction: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Advance Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.advance_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, advance_deduction: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Tax Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.tax_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, tax_deduction: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Other Deductions</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.other_deductions} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, other_deductions: e.target.value })} />
+              </div>
+            </div>
+            <Button onClick={() => updatePayroll.mutate()} disabled={updatePayroll.isPending} className="w-full">Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
