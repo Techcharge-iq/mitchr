@@ -762,21 +762,30 @@ export default function Payroll() {
               <h2 className="text-xl font-semibold">Employee Advances & Expenses</h2>
               <p className="text-sm text-muted-foreground">Admin/HR can approve, reject, or move any request to payroll salary deduction.</p>
             </div>
-            <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
+            <Dialog open={advanceOpen} onOpenChange={(o) => { setAdvanceOpen(o); if (!o) { setEditingAdvance(null); setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', expense_date: format(new Date(), 'yyyy-MM-dd'), monthly_deduction: '' }); } }}>
               <DialogTrigger asChild>
                 <Button className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> New Request</Button>
               </DialogTrigger>
               <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
-                  <DialogTitle>Employee Advances & Expenses</DialogTitle>
+                  <DialogTitle>{editingAdvance ? 'Edit Request' : 'Employee Advances & Expenses'}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 pt-4">
                   <div className="grid gap-2">
                     <Label>Employee</Label>
-                    <Select value={advanceForm.employee_id} onValueChange={(v) => setAdvanceForm({ ...advanceForm, employee_id: v })}>
+                    <Select value={advanceForm.employee_id} onValueChange={(v) => setAdvanceForm({ ...advanceForm, employee_id: v })} disabled={!!editingAdvance}>
                       <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
                       <SelectContent>
                         {employees.map((e) => <SelectItem key={e.id} value={e.id}>{employeeName(e)} ({e.employee_code})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Purpose *</Label>
+                    <Select value={advanceForm.purpose} onValueChange={(v) => setAdvanceForm({ ...advanceForm, purpose: v as Purpose })}>
+                      <SelectTrigger><SelectValue placeholder="Select purpose" /></SelectTrigger>
+                      <SelectContent>
+                        {PURPOSES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -798,12 +807,13 @@ export default function Payroll() {
                     <Label>Suggested Salary Deduction (OMR)</Label>
                     <Input type="number" min="0" value={advanceForm.monthly_deduction} onChange={(e) => setAdvanceForm({ ...advanceForm, monthly_deduction: e.target.value })} placeholder="Optional; defaults to full amount" />
                   </div>
-                  <Button onClick={() => createAdvance.mutate()} disabled={!advanceForm.employee_id || !advanceForm.amount || !advanceForm.purpose || createAdvance.isPending} className="w-full">
-                    Submit Request
+                  <Button onClick={() => editingAdvance ? updateAdvance.mutate() : createAdvance.mutate()} disabled={!advanceForm.employee_id || !advanceForm.amount || !advanceForm.purpose || createAdvance.isPending || updateAdvance.isPending} className="w-full">
+                    {editingAdvance ? 'Save Changes' : 'Submit Request'}
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
+
           </div>
 
           <Card className="hidden lg:block">
