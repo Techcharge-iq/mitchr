@@ -596,6 +596,30 @@ export default function Payroll() {
           <ArrowRightLeft className="mr-1 h-4 w-4" /> Salary Deduction
         </Button>
       )}
+      {isAdmin && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => openEditAdvance(advance)}>
+            <Pencil className="mr-1 h-4 w-4" /> Edit
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" className="text-destructive">
+                <Trash2 className="mr-1 h-4 w-4" /> Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this request?</AlertDialogTitle>
+                <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => deleteAdvance.mutate(advance.id)}>Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
     </div>
   );
 
