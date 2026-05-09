@@ -8,11 +8,25 @@ import {
   ClipboardList,
   FileText,
   History,
+  Pencil,
   Plus,
   ReceiptText,
+  Trash2,
   Wallet,
   X,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { useAuth } from '@/hooks/useAuth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Badge } from '@/components/ui/badge';
@@ -117,6 +131,16 @@ export default function Payroll() {
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [payrollOpen, setPayrollOpen] = useState(false);
+  const [editingAdvance, setEditingAdvance] = useState<AdvanceRecord | null>(null);
+  const [editingPayroll, setEditingPayroll] = useState<PayrollRecord | null>(null);
+  const [payslipEditForm, setPayslipEditForm] = useState({
+    gross_salary: '',
+    attendance_deduction: '',
+    advance_deduction: '',
+    tax_deduction: '',
+    other_deductions: '',
+    status: 'draft',
+  });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
   const [advanceForm, setAdvanceForm] = useState({
     employee_id: '',
@@ -145,6 +169,8 @@ export default function Payroll() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { userRole } = useAuth();
+  const isAdmin = userRole === 'admin';
   const activeTab = tabFromPath(location.pathname);
 
   const { data: employees = [] } = useQuery({
@@ -337,6 +363,115 @@ export default function Payroll() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const updateAdvance = useMutation({
+    mutationFn: async () => {
+      if (!editingAdvance) return;
+      const amount = parseFloat(advanceForm.amount);
+      const monthlyDeduction = advanceForm.monthly_deduction ? parseFloat(advanceForm.monthly_deduction) : amount;
+      const { error } = await supabase
+        .from('advances')
+        .update({
+          amount,
+          monthly_deduction: monthlyDeduction,
+          purpose: advanceForm.purpose,
+          others: advanceForm.others,
+          reason: advanceForm.others,
+          expense_date: advanceForm.expense_date,
+        })
+        .eq('id', editingAdvance.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Request updated');
+      setAdvanceOpen(false);
+      setEditingAdvance(null);
+      setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', expense_date: format(new Date(), 'yyyy-MM-dd'), monthly_deduction: '' });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteAdvance = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('advances').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      toast.success('Request deleted');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updatePayroll = useMutation({
+    mutationFn: async () => {
+      if (!editingPayroll) return;
+      const gross = parseFloat(payslipEditForm.gross_salary) || 0;
+      const att = parseFloat(payslipEditForm.attendance_deduction) || 0;
+      const adv = parseFloat(payslipEditForm.advance_deduction) || 0;
+      const tax = parseFloat(payslipEditForm.tax_deduction) || 0;
+      const oth = parseFloat(payslipEditForm.other_deductions) || 0;
+      const net = gross - att - adv - tax - oth;
+      const { error } = await supabase
+        .from('payroll')
+        .update({
+          gross_salary: gross,
+          attendance_deduction: att,
+          advance_deduction: adv,
+          tax_deduction: tax,
+          other_deductions: oth,
+          net_salary: net,
+          status: payslipEditForm.status,
+          paid_at: payslipEditForm.status === 'paid' ? new Date().toISOString() : null,
+        })
+        .eq('id', editingPayroll.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrolls'] });
+      toast.success('Payslip updated');
+      setEditingPayroll(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deletePayroll = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('payroll').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrolls'] });
+      toast.success('Payslip deleted');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openEditAdvance = (advance: AdvanceRecord) => {
+    setEditingAdvance(advance);
+    setAdvanceForm({
+      employee_id: advance.employee_id,
+      amount: String(advance.amount ?? ''),
+      purpose: (advance.purpose as Purpose) || '',
+      others: advance.others || advance.reason || '',
+      expense_date: advance.expense_date || format(new Date(), 'yyyy-MM-dd'),
+      monthly_deduction: String(advance.monthly_deduction ?? ''),
+    });
+    setAdvanceOpen(true);
+  };
+
+  const openEditPayroll = (p: PayrollRecord) => {
+    setEditingPayroll(p);
+    setPayslipEditForm({
+      gross_salary: String(p.gross_salary ?? ''),
+      attendance_deduction: String(p.attendance_deduction ?? 0),
+      advance_deduction: String(p.advance_deduction ?? 0),
+      tax_deduction: String(p.tax_deduction ?? 0),
+      other_deductions: String(p.other_deductions ?? 0),
+      status: p.status || 'draft',
+    });
+  };
+
   const generatePayroll = useMutation({
     mutationFn: async () => {
       const month = parseInt(payrollForm.month);
@@ -460,6 +595,30 @@ export default function Payroll() {
         <Button size="sm" onClick={() => updateAdvanceWorkflow.mutate({ id: advance.id, action: 'salary_deduction' })}>
           <ArrowRightLeft className="mr-1 h-4 w-4" /> Salary Deduction
         </Button>
+      )}
+      {isAdmin && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => openEditAdvance(advance)}>
+            <Pencil className="mr-1 h-4 w-4" /> Edit
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" className="text-destructive">
+                <Trash2 className="mr-1 h-4 w-4" /> Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this request?</AlertDialogTitle>
+                <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => deleteAdvance.mutate(advance.id)}>Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
       )}
     </div>
   );
@@ -603,21 +762,30 @@ export default function Payroll() {
               <h2 className="text-xl font-semibold">Employee Advances & Expenses</h2>
               <p className="text-sm text-muted-foreground">Admin/HR can approve, reject, or move any request to payroll salary deduction.</p>
             </div>
-            <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
+            <Dialog open={advanceOpen} onOpenChange={(o) => { setAdvanceOpen(o); if (!o) { setEditingAdvance(null); setAdvanceForm({ employee_id: '', amount: '', purpose: '', others: '', expense_date: format(new Date(), 'yyyy-MM-dd'), monthly_deduction: '' }); } }}>
               <DialogTrigger asChild>
                 <Button className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> New Request</Button>
               </DialogTrigger>
               <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
-                  <DialogTitle>Employee Advances & Expenses</DialogTitle>
+                  <DialogTitle>{editingAdvance ? 'Edit Request' : 'Employee Advances & Expenses'}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 pt-4">
                   <div className="grid gap-2">
                     <Label>Employee</Label>
-                    <Select value={advanceForm.employee_id} onValueChange={(v) => setAdvanceForm({ ...advanceForm, employee_id: v })}>
+                    <Select value={advanceForm.employee_id} onValueChange={(v) => setAdvanceForm({ ...advanceForm, employee_id: v })} disabled={!!editingAdvance}>
                       <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
                       <SelectContent>
                         {employees.map((e) => <SelectItem key={e.id} value={e.id}>{employeeName(e)} ({e.employee_code})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Purpose *</Label>
+                    <Select value={advanceForm.purpose} onValueChange={(v) => setAdvanceForm({ ...advanceForm, purpose: v as Purpose })}>
+                      <SelectTrigger><SelectValue placeholder="Select purpose" /></SelectTrigger>
+                      <SelectContent>
+                        {PURPOSES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -639,12 +807,13 @@ export default function Payroll() {
                     <Label>Suggested Salary Deduction (OMR)</Label>
                     <Input type="number" min="0" value={advanceForm.monthly_deduction} onChange={(e) => setAdvanceForm({ ...advanceForm, monthly_deduction: e.target.value })} placeholder="Optional; defaults to full amount" />
                   </div>
-                  <Button onClick={() => createAdvance.mutate()} disabled={!advanceForm.employee_id || !advanceForm.amount || !advanceForm.purpose || createAdvance.isPending} className="w-full">
-                    Submit Request
+                  <Button onClick={() => editingAdvance ? updateAdvance.mutate() : createAdvance.mutate()} disabled={!advanceForm.employee_id || !advanceForm.amount || !advanceForm.purpose || createAdvance.isPending || updateAdvance.isPending} className="w-full">
+                    {editingAdvance ? 'Save Changes' : 'Submit Request'}
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
+
           </div>
 
           <Card className="hidden lg:block">
@@ -779,8 +948,8 @@ export default function Payroll() {
             <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Recent Payslips</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Period</TableHead><TableHead>Gross</TableHead><TableHead>Deductions</TableHead><TableHead>Net Salary</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                <TableBody>{payrolls.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No payslips found</TableCell></TableRow> : payrolls.map((p) => <TableRow key={p.id}><TableCell className="font-medium">{employeeName(p.employees)}</TableCell><TableCell>{format(new Date(p.year, p.month - 1), 'MMMM yyyy')}</TableCell><TableCell>{formatCurrency(p.gross_salary)}</TableCell><TableCell>{formatCurrency((p.attendance_deduction || 0) + (p.advance_deduction || 0) + (p.tax_deduction || 0) + (p.other_deductions || 0))}</TableCell><TableCell className="font-semibold">{formatCurrency(p.net_salary)}</TableCell><TableCell><Badge className={p.status === 'paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}>{p.status}</Badge></TableCell></TableRow>)}</TableBody>
+                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Period</TableHead><TableHead>Gross</TableHead><TableHead>Deductions</TableHead><TableHead>Net Salary</TableHead><TableHead>Status</TableHead>{isAdmin && <TableHead>Actions</TableHead>}</TableRow></TableHeader>
+                <TableBody>{payrolls.length === 0 ? <TableRow><TableCell colSpan={isAdmin ? 7 : 6} className="text-center text-muted-foreground">No payslips found</TableCell></TableRow> : payrolls.map((p) => <TableRow key={p.id}><TableCell className="font-medium">{employeeName(p.employees)}</TableCell><TableCell>{format(new Date(p.year, p.month - 1), 'MMMM yyyy')}</TableCell><TableCell>{formatCurrency(p.gross_salary)}</TableCell><TableCell>{formatCurrency((p.attendance_deduction || 0) + (p.advance_deduction || 0) + (p.tax_deduction || 0) + (p.other_deductions || 0))}</TableCell><TableCell className="font-semibold">{formatCurrency(p.net_salary)}</TableCell><TableCell><Badge className={p.status === 'paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}>{p.status}</Badge></TableCell>{isAdmin && <TableCell><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openEditPayroll(p)}><Pencil className="h-4 w-4" /></Button><AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="outline" className="text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete this payslip?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deletePayroll.mutate(p.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></TableCell>}</TableRow>)}</TableBody>
               </Table>
             </CardContent>
           </Card>
@@ -804,6 +973,52 @@ export default function Payroll() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!editingPayroll} onOpenChange={(o) => { if (!o) setEditingPayroll(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader><DialogTitle>Edit Payslip</DialogTitle></DialogHeader>
+          <div className="grid gap-4 pt-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Gross Salary (OMR)</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.gross_salary} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, gross_salary: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={payslipEditForm.status} onValueChange={(v) => setPayslipEditForm({ ...payslipEditForm, status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Attendance Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.attendance_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, attendance_deduction: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Advance Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.advance_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, advance_deduction: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Tax Deduction</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.tax_deduction} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, tax_deduction: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Other Deductions</Label>
+                <Input type="number" min="0" step="0.01" value={payslipEditForm.other_deductions} onChange={(e) => setPayslipEditForm({ ...payslipEditForm, other_deductions: e.target.value })} />
+              </div>
+            </div>
+            <Button onClick={() => updatePayroll.mutate()} disabled={updatePayroll.isPending} className="w-full">Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
