@@ -131,6 +131,16 @@ export default function Payroll() {
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [payrollOpen, setPayrollOpen] = useState(false);
+  const [editingAdvance, setEditingAdvance] = useState<AdvanceRecord | null>(null);
+  const [editingPayroll, setEditingPayroll] = useState<PayrollRecord | null>(null);
+  const [payslipEditForm, setPayslipEditForm] = useState({
+    gross_salary: '',
+    attendance_deduction: '',
+    advance_deduction: '',
+    tax_deduction: '',
+    other_deductions: '',
+    status: 'draft',
+  });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
   const [advanceForm, setAdvanceForm] = useState({
     employee_id: '',
