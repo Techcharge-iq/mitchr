@@ -374,6 +374,7 @@ export type Database = {
       }
       employees: {
         Row: {
+          account_number: string | null
           address: string | null
           avatar_url: string | null
           branch_id: string | null
@@ -403,6 +404,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          account_number?: string | null
           address?: string | null
           avatar_url?: string | null
           branch_id?: string | null
@@ -432,6 +434,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          account_number?: string | null
           address?: string | null
           avatar_url?: string | null
           branch_id?: string | null
