@@ -169,6 +169,8 @@ export default function Payroll() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { userRole } = useAuth();
+  const isAdmin = userRole === 'admin';
   const activeTab = tabFromPath(location.pathname);
 
   const { data: employees = [] } = useQuery({
