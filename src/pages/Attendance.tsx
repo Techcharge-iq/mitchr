@@ -198,6 +198,7 @@ export default function Attendance() {
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-40"
               />
+            </div>
           </div>
           {canManage && (
             <Button
