@@ -34,10 +34,6 @@ export default function Attendance() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [searchQuery, setSearchQuery] = useState('');
 
-export default function Attendance() {
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [searchQuery, setSearchQuery] = useState('');
-
   const queryClient = useQueryClient();
 
   const { data: attendance, isLoading } = useQuery({
