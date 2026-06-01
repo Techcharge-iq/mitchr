@@ -198,8 +198,21 @@ export default function Attendance() {
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-40"
               />
-            </div>
           </div>
+          {canManage && (
+            <Button
+              onClick={() => markAllPresent.mutate()}
+              disabled={markAllPresent.isPending || !employees?.length}
+              className="gap-2"
+            >
+              {markAllPresent.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCheck className="h-4 w-4" />
+              )}
+              Mark all Present
+            </Button>
+          )}
         </div>
 
         {/* Stats Cards */}
