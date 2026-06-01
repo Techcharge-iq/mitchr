@@ -23,11 +23,14 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { Attendance as AttendanceType } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Search, Calendar, Clock, MapPin, Loader2 } from 'lucide-react';
+import { Search, Calendar, Clock, MapPin, Loader2, CheckCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Attendance() {
+  const { userRole } = useAuth();
+  const canManage = userRole === 'admin' || userRole === 'hr_staff';
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -64,7 +67,7 @@ export default function Attendance() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employees')
-        .select('id, first_name, last_name, employee_code')
+        .select('id, first_name, last_name, employee_code, department:departments(name)')
         .eq('employment_status', 'active');
       if (error) throw error;
       return data;
@@ -85,11 +88,33 @@ export default function Attendance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
-      toast.success('Attendance marked successfully');
+      toast.success('Attendance updated');
     },
     onError: (error: Error) => {
       toast.error(error.message);
     },
+  });
+
+  const markAllPresent = useMutation({
+    mutationFn: async () => {
+      if (!employees?.length) return;
+      const nowIso = new Date().toISOString();
+      const rows = employees.map((e) => ({
+        employee_id: e.id,
+        date: selectedDate,
+        status: 'present' as any,
+        check_in: nowIso,
+      }));
+      const { error } = await supabase
+        .from('attendance')
+        .upsert(rows, { onConflict: 'employee_id,date' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success('All employees marked present');
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const getStatusColor = (status: string) => {
@@ -109,11 +134,41 @@ export default function Attendance() {
     }
   };
 
-  const filteredAttendance = attendance?.filter((record) =>
+  // Merge: when admin/HR, show every active employee for the date even if not yet marked.
+  const mergedRows = (() => {
+    if (!canManage) return attendance ?? [];
+    const byEmp = new Map((attendance ?? []).map((a) => [a.employee.id, a]));
+    return (employees ?? []).map((emp) => {
+      const existing = byEmp.get(emp.id);
+      if (existing) return existing;
+      return {
+        id: `placeholder-${emp.id}`,
+        employee_id: emp.id,
+        date: selectedDate,
+        status: 'not_marked' as any,
+        check_in: null,
+        check_out: null,
+        overtime_minutes: 0,
+        check_in_latitude: null,
+        check_in_longitude: null,
+        employee: {
+          id: emp.id,
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          email: '',
+          employee_code: emp.employee_code,
+          department: emp.department as any,
+        },
+      } as any;
+    });
+  })();
+
+  const filteredAttendance = mergedRows.filter((record: any) =>
     `${record.employee.first_name} ${record.employee.last_name} ${record.employee.employee_code}`
       .toLowerCase()
       .includes(searchQuery.toLowerCase())
   );
+
 
   const formatTime = (dateString: string | null) => {
     if (!dateString) return '-';
@@ -145,6 +200,20 @@ export default function Attendance() {
               />
             </div>
           </div>
+          {canManage && (
+            <Button
+              onClick={() => markAllPresent.mutate()}
+              disabled={markAllPresent.isPending || !employees?.length}
+              className="gap-2"
+            >
+              {markAllPresent.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCheck className="h-4 w-4" />
+              )}
+              Mark all Present
+            </Button>
+          )}
         </div>
 
         {/* Stats Cards */}
@@ -215,18 +284,19 @@ export default function Attendance() {
                 <TableHead>Status</TableHead>
                 <TableHead>Overtime</TableHead>
                 <TableHead>Location</TableHead>
+                {canManage && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={canManage ? 8 : 7} className="h-32 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : filteredAttendance?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={canManage ? 8 : 7} className="h-32 text-center text-muted-foreground">
                     No attendance records for this date
                   </TableCell>
                 </TableRow>
@@ -259,12 +329,16 @@ export default function Attendance() {
                       {formatTime(record.check_out)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn('capitalize', getStatusColor(record.status))}
-                      >
-                        {record.status.replace('_', ' ')}
-                      </Badge>
+                      {record.status === 'not_marked' ? (
+                        <Badge variant="outline" className="text-muted-foreground">Not marked</Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className={cn('capitalize', getStatusColor(record.status))}
+                        >
+                          {record.status.replace('_', ' ')}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {record.overtime_minutes > 0 ? (
@@ -285,6 +359,27 @@ export default function Attendance() {
                         '-'
                       )}
                     </TableCell>
+                    {canManage && (
+                      <TableCell>
+                        <Select
+                          value={record.status === 'not_marked' ? '' : record.status}
+                          onValueChange={(v) =>
+                            markAttendance.mutate({ employeeId: record.employee.id, status: v })
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-36">
+                            <SelectValue placeholder="Mark..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="present">Present</SelectItem>
+                            <SelectItem value="absent">Absent</SelectItem>
+                            <SelectItem value="half_day">Half Day</SelectItem>
+                            <SelectItem value="on_leave">On Leave</SelectItem>
+                            <SelectItem value="holiday">Holiday</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

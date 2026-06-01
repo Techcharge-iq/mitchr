@@ -42,8 +42,11 @@ import { toast } from 'sonner';
 import { Plus, Search, Loader2, Check, X, Calendar } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Leave() {
+  const { user, userRole } = useAuth();
+  const canManage = userRole === 'admin' || userRole === 'hr_staff' || userRole === 'manager';
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({
@@ -55,6 +58,20 @@ export default function Leave() {
   });
 
   const queryClient = useQueryClient();
+
+  const { data: myEmployee } = useQuery({
+    queryKey: ['my-employee', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, employee_code')
+        .eq('user_id', user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const { data: leaveApplications, isLoading } = useQuery({
     queryKey: ['leave-applications'],
@@ -109,10 +126,24 @@ export default function Leave() {
 
   const createLeaveApplication = useMutation({
     mutationFn: async (data: typeof formData) => {
+      const employee_id = canManage ? data.employee_id : myEmployee?.id;
+      if (!employee_id) {
+        throw new Error('Your account is not linked to an employee profile — please contact admin.');
+      }
+      if (!data.start_date || !data.end_date) {
+        throw new Error('Start and end dates are required.');
+      }
       const totalDays = differenceInDays(new Date(data.end_date), new Date(data.start_date)) + 1;
-      
+      if (totalDays <= 0) {
+        throw new Error('End date must be on or after start date.');
+      }
+
       const { error } = await supabase.from('leave_applications').insert([{
-        ...data,
+        employee_id,
+        leave_type_id: data.leave_type_id,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        reason: data.reason,
         total_days: totalDays,
       }]);
       if (error) throw error;
@@ -314,24 +345,35 @@ export default function Leave() {
                 }}
                 className="space-y-4 py-4"
               >
-                <div className="space-y-2">
-                  <Label>Employee</Label>
-                  <Select
-                    value={formData.employee_id}
-                    onValueChange={(value) => setFormData({ ...formData, employee_id: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select employee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {employees?.map((emp) => (
-                        <SelectItem key={emp.id} value={emp.id}>
-                          {emp.first_name} {emp.last_name} ({emp.employee_code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {canManage ? (
+                  <div className="space-y-2">
+                    <Label>Employee</Label>
+                    <Select
+                      value={formData.employee_id}
+                      onValueChange={(value) => setFormData({ ...formData, employee_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select employee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees?.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.first_name} {emp.last_name} ({emp.employee_code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    Applying as:{' '}
+                    <span className="font-medium">
+                      {myEmployee
+                        ? `${myEmployee.first_name} ${myEmployee.last_name} (${myEmployee.employee_code})`
+                        : 'No employee profile linked'}
+                    </span>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Leave Type</Label>
                   <Select

@@ -1,65 +1,50 @@
-## Goals
+## Issues
 
-1. Add a missing **Purpose** selector to the "New Request" form on the Employee Advances & Expenses page.
-2. Allow **Admin only** to **edit and delete**:
-   - Employee Advances & Expenses (rows on the Advances tab)
-   - Payslips (rows on the Payslips tab)
-
-Stay on Lovable Cloud. UI/business-logic only — no DB schema changes (existing `advances` and `payroll` tables already support update/delete via RLS for admin/HR/accountant; we'll restrict UI to admin role).
+1. **Leave application RLS error**: Inserting a leave application fails because the existing INSERT policy on `leave_applications` only allows `employee_id = get_employee_id(auth.uid())`. Admin/HR/managers (and any user submitting on behalf of someone else, or a user whose auth account isn't yet linked to an employee row) get blocked.
+2. **Attendance is hard to manage**: The Attendance page lists records and has a `markAttendance` mutation, but there's no UI to actually mark or change status per employee. Users want a simple way to manage daily attendance.
 
 ---
 
-## Changes — `src/pages/Payroll.tsx`
+## Fix 1 — Leave RLS (DB migration)
 
-### 1. Purpose field in New Request dialog
-The form state already has `purpose` (typed `Purpose | ''`) and the submit button already disables when empty, but the `<Select>` UI is missing. Add it directly above the Amount/Expense Date row inside the advances dialog (around line 624):
+Add an INSERT policy that lets managers/HR/admin file leave for anyone, while still letting employees file their own:
 
-```tsx
-<div className="grid gap-2">
-  <Label>Purpose *</Label>
-  <Select value={advanceForm.purpose} onValueChange={(v) => setAdvanceForm({ ...advanceForm, purpose: v as Purpose })}>
-    <SelectTrigger><SelectValue placeholder="Select purpose" /></SelectTrigger>
-    <SelectContent>
-      {PURPOSES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-    </SelectContent>
-  </Select>
-</div>
+```sql
+CREATE POLICY "Admin/HR/Managers can create leave applications"
+ON public.leave_applications FOR INSERT
+TO authenticated
+WITH CHECK (public.is_manager_or_above(auth.uid()));
 ```
 
-### 2. Admin-only Edit / Delete
+(Existing "Users can create leave applications" policy stays — employees keep filing their own; PostgreSQL OR-combines permissive policies.)
 
-- Import `useAuth` from `@/hooks/useAuth` and read `userRole`. Compute `const isAdmin = userRole === 'admin'`.
+## Fix 2 — Leave UI (`src/pages/Leave.tsx`)
 
-- **Advances — Edit**
-  - Add `editingAdvance: AdvanceRecord | null` state and reuse the existing advance dialog (refactor: when `editingAdvance` is set, the dialog title becomes "Edit Request", inputs are prefilled, and submit calls `updateAdvance.mutate()` instead of `createAdvance.mutate()`).
-  - New `updateAdvance` mutation: `supabase.from('advances').update({ amount, monthly_deduction, purpose, others, expense_date }).eq('id', editingAdvance.id)`.
+- For non-manager users (`!is_manager_or_above`), hide the employee selector and auto-default `employee_id` to the current user's employee record (fetched via a lightweight query of `employees` where `user_id = auth.uid()`).
+- Managers/HR/admin keep the employee dropdown.
+- Surface clearer error toast if the current user has no linked employee record ("Your account is not linked to an employee profile — contact admin").
 
-- **Advances — Delete**
-  - New `deleteAdvance` mutation: `supabase.from('advances').delete().eq('id', id)`. Wrap trigger in `AlertDialog` (confirm "Delete this request?").
+## Fix 3 — Attendance management UI (`src/pages/Attendance.tsx`)
 
-- Render Edit/Delete buttons inside `renderWorkflowActions(advance)` only when `isAdmin === true`. Same buttons added to the mobile card list.
+Make the existing page actually usable for admin/HR:
 
-- **Payslips — Edit**
-  - Add `editingPayroll: PayrollRecord | null` state + a small dialog (Edit Payslip) with fields: `gross_salary`, `attendance_deduction`, `advance_deduction`, `tax_deduction`, `other_deductions`, `status` (draft/pending/paid). On save, recompute `net_salary = gross_salary - sum(deductions)` and update the row.
-  - Mutation: `supabase.from('payroll').update({...}).eq('id', editingPayroll.id)`.
+- Add an **"All Employees" mode toggle** so when no attendance rows exist for the selected date, every active employee still appears in the table (left-joined with their attendance record for that date, if any).
+- Add an **Actions column** (admin/HR only via `useAuth`) with a small `Select` (Present / Absent / Half Day / On Leave / Holiday) that calls the existing `markAttendance` mutation on change. Existing rows show current status as the value; missing rows show "Not marked".
+- Add a **"Mark all Present"** button at the top (admin/HR only) that bulk-upserts the visible employees for the selected date.
+- Keep the existing filters, search, and stats cards.
 
-- **Payslips — Delete**
-  - New `deletePayroll` mutation: `supabase.from('payroll').delete().eq('id', id)`, wrapped in `AlertDialog` confirm.
-
-- In the Recent Payslips table, add a new "Actions" column (rendered only when `isAdmin`) with Edit and Delete buttons. Hide the column entirely for non-admins.
-
-### 3. Cache invalidation & toasts
-All new mutations invalidate `['advances']` or `['payrolls']` and show success/error toasts via `sonner`, matching existing patterns.
+No new tables; uses existing `attendance` table and its RLS (admin/HR already has full manage policy).
 
 ---
-
-## Verification
-
-- Open `/payroll/advances` → "New Request" → confirm Purpose dropdown shows Food / Petrol / Personal Advance / Office Expenses, and Submit stays disabled until selected.
-- As an admin user, confirm Edit + Delete buttons appear on advances rows and payslip rows; clicking Edit opens a prefilled dialog, Save updates the row, Delete asks for confirmation then removes the row.
-- As a non-admin (employee/hr/manager/accountant), confirm Edit/Delete are not rendered.
-- After edits, totals on the Statements tab and summary cards refresh automatically.
 
 ## Files touched
 
-- `src/pages/Payroll.tsx` (only file)
+- New migration: add INSERT policy on `leave_applications` for managers/HR/admin.
+- `src/pages/Leave.tsx` — conditional employee selector + safer error handling.
+- `src/pages/Attendance.tsx` — show all active employees, per-row status selector, "Mark all Present" bulk action (admin/HR only).
+
+## Verification
+
+- As employee: submit leave for self → succeeds (no RLS error).
+- As admin/HR: submit leave for any employee → succeeds.
+- As admin/HR on `/attendance`: pick a date, see all active employees, change a row's status via dropdown, "Mark all Present" updates everyone in one click; stats cards refresh.
