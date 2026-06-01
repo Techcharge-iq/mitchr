@@ -126,10 +126,24 @@ export default function Leave() {
 
   const createLeaveApplication = useMutation({
     mutationFn: async (data: typeof formData) => {
+      const employee_id = canManage ? data.employee_id : myEmployee?.id;
+      if (!employee_id) {
+        throw new Error('Your account is not linked to an employee profile — please contact admin.');
+      }
+      if (!data.start_date || !data.end_date) {
+        throw new Error('Start and end dates are required.');
+      }
       const totalDays = differenceInDays(new Date(data.end_date), new Date(data.start_date)) + 1;
-      
+      if (totalDays <= 0) {
+        throw new Error('End date must be on or after start date.');
+      }
+
       const { error } = await supabase.from('leave_applications').insert([{
-        ...data,
+        employee_id,
+        leave_type_id: data.leave_type_id,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        reason: data.reason,
         total_days: totalDays,
       }]);
       if (error) throw error;
