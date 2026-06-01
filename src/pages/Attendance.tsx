@@ -329,12 +329,16 @@ export default function Attendance() {
                       {formatTime(record.check_out)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn('capitalize', getStatusColor(record.status))}
-                      >
-                        {record.status.replace('_', ' ')}
-                      </Badge>
+                      {record.status === 'not_marked' ? (
+                        <Badge variant="outline" className="text-muted-foreground">Not marked</Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className={cn('capitalize', getStatusColor(record.status))}
+                        >
+                          {record.status.replace('_', ' ')}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {record.overtime_minutes > 0 ? (
