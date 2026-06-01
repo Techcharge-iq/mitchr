@@ -290,13 +290,13 @@ export default function Attendance() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={canManage ? 8 : 7} className="h-32 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : filteredAttendance?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={canManage ? 8 : 7} className="h-32 text-center text-muted-foreground">
                     No attendance records for this date
                   </TableCell>
                 </TableRow>
