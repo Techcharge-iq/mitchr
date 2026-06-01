@@ -345,24 +345,35 @@ export default function Leave() {
                 }}
                 className="space-y-4 py-4"
               >
-                <div className="space-y-2">
-                  <Label>Employee</Label>
-                  <Select
-                    value={formData.employee_id}
-                    onValueChange={(value) => setFormData({ ...formData, employee_id: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select employee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {employees?.map((emp) => (
-                        <SelectItem key={emp.id} value={emp.id}>
-                          {emp.first_name} {emp.last_name} ({emp.employee_code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {canManage ? (
+                  <div className="space-y-2">
+                    <Label>Employee</Label>
+                    <Select
+                      value={formData.employee_id}
+                      onValueChange={(value) => setFormData({ ...formData, employee_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select employee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees?.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.first_name} {emp.last_name} ({emp.employee_code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    Applying as:{' '}
+                    <span className="font-medium">
+                      {myEmployee
+                        ? `${myEmployee.first_name} ${myEmployee.last_name} (${myEmployee.employee_code})`
+                        : 'No employee profile linked'}
+                    </span>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Leave Type</Label>
                   <Select
