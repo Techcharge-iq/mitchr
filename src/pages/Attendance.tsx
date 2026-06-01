@@ -284,6 +284,7 @@ export default function Attendance() {
                 <TableHead>Status</TableHead>
                 <TableHead>Overtime</TableHead>
                 <TableHead>Location</TableHead>
+                {canManage && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
