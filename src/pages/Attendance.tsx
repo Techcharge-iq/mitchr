@@ -359,6 +359,27 @@ export default function Attendance() {
                         '-'
                       )}
                     </TableCell>
+                    {canManage && (
+                      <TableCell>
+                        <Select
+                          value={record.status === 'not_marked' ? '' : record.status}
+                          onValueChange={(v) =>
+                            markAttendance.mutate({ employeeId: record.employee.id, status: v })
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-36">
+                            <SelectValue placeholder="Mark..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="present">Present</SelectItem>
+                            <SelectItem value="absent">Absent</SelectItem>
+                            <SelectItem value="half_day">Half Day</SelectItem>
+                            <SelectItem value="on_leave">On Leave</SelectItem>
+                            <SelectItem value="holiday">Holiday</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}
