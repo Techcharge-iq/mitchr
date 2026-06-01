@@ -42,8 +42,11 @@ import { toast } from 'sonner';
 import { Plus, Search, Loader2, Check, X, Calendar } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Leave() {
+  const { user, userRole } = useAuth();
+  const canManage = userRole === 'admin' || userRole === 'hr_staff' || userRole === 'manager';
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({
@@ -55,6 +58,20 @@ export default function Leave() {
   });
 
   const queryClient = useQueryClient();
+
+  const { data: myEmployee } = useQuery({
+    queryKey: ['my-employee', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, employee_code')
+        .eq('user_id', user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const { data: leaveApplications, isLoading } = useQuery({
     queryKey: ['leave-applications'],
