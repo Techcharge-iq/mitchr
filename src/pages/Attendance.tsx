@@ -23,9 +23,16 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { Attendance as AttendanceType } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Search, Calendar, Clock, MapPin, Loader2 } from 'lucide-react';
+import { Search, Calendar, Clock, MapPin, Loader2, CheckCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+
+export default function Attendance() {
+  const { userRole } = useAuth();
+  const canManage = userRole === 'admin' || userRole === 'hr_staff';
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [searchQuery, setSearchQuery] = useState('');
 
 export default function Attendance() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
