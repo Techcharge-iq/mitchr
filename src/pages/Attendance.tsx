@@ -67,7 +67,7 @@ export default function Attendance() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employees')
-        .select('id, first_name, last_name, employee_code')
+        .select('id, first_name, last_name, employee_code, department:departments(name)')
         .eq('employment_status', 'active');
       if (error) throw error;
       return data;
@@ -88,11 +88,33 @@ export default function Attendance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
-      toast.success('Attendance marked successfully');
+      toast.success('Attendance updated');
     },
     onError: (error: Error) => {
       toast.error(error.message);
     },
+  });
+
+  const markAllPresent = useMutation({
+    mutationFn: async () => {
+      if (!employees?.length) return;
+      const nowIso = new Date().toISOString();
+      const rows = employees.map((e) => ({
+        employee_id: e.id,
+        date: selectedDate,
+        status: 'present' as any,
+        check_in: nowIso,
+      }));
+      const { error } = await supabase
+        .from('attendance')
+        .upsert(rows, { onConflict: 'employee_id,date' });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success('All employees marked present');
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const getStatusColor = (status: string) => {
@@ -112,11 +134,41 @@ export default function Attendance() {
     }
   };
 
-  const filteredAttendance = attendance?.filter((record) =>
+  // Merge: when admin/HR, show every active employee for the date even if not yet marked.
+  const mergedRows = (() => {
+    if (!canManage) return attendance ?? [];
+    const byEmp = new Map((attendance ?? []).map((a) => [a.employee.id, a]));
+    return (employees ?? []).map((emp) => {
+      const existing = byEmp.get(emp.id);
+      if (existing) return existing;
+      return {
+        id: `placeholder-${emp.id}`,
+        employee_id: emp.id,
+        date: selectedDate,
+        status: 'not_marked' as any,
+        check_in: null,
+        check_out: null,
+        overtime_minutes: 0,
+        check_in_latitude: null,
+        check_in_longitude: null,
+        employee: {
+          id: emp.id,
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          email: '',
+          employee_code: emp.employee_code,
+          department: emp.department as any,
+        },
+      } as any;
+    });
+  })();
+
+  const filteredAttendance = mergedRows.filter((record: any) =>
     `${record.employee.first_name} ${record.employee.last_name} ${record.employee.employee_code}`
       .toLowerCase()
       .includes(searchQuery.toLowerCase())
   );
+
 
   const formatTime = (dateString: string | null) => {
     if (!dateString) return '-';
