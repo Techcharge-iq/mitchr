@@ -10,6 +10,7 @@ import {
   History,
   Pencil,
   Plus,
+  Printer,
   ReceiptText,
   Trash2,
   Wallet,
@@ -42,6 +43,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { PrintablePayslip, PrintableStatement } from '@/components/payroll/PrintableDocs';
 
 const PURPOSES = ['Food', 'Petrol', 'Personal Advance', 'Office Expenses'] as const;
 type Purpose = (typeof PURPOSES)[number];
@@ -142,6 +144,8 @@ export default function Payroll() {
     status: 'draft',
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
+  const [printPayslip, setPrintPayslip] = useState<PayrollRecord | null>(null);
+  const [printStatementEmpId, setPrintStatementEmpId] = useState<string | null>(null);
   const [advanceForm, setAdvanceForm] = useState({
     employee_id: '',
     amount: '',
@@ -476,54 +480,71 @@ export default function Payroll() {
     mutationFn: async () => {
       const month = parseInt(payrollForm.month);
       const year = parseInt(payrollForm.year);
-      
-      // Get attendance data for the month
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+      const endDate = `${month === 12 ? year + 1 : year}-${((month % 12) + 1).toString().padStart(2, '0')}-01`;
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      // Attendance for the month (only explicit overrides exist; unmarked = Present by default)
       const { data: attendanceData } = await supabase
         .from('attendance')
-        .select('employee_id, status')
-        .gte('date', `${year}-${month.toString().padStart(2, '0')}-01`)
-        .lt('date', `${year}-${(month + 1).toString().padStart(2, '0')}-01`);
+        .select('employee_id, status, date')
+        .gte('date', startDate)
+        .lt('date', endDate);
 
-      // Calculate attendance deductions
-      const attendanceSummary = attendanceData?.reduce((acc, record) => {
-        if (!acc[record.employee_id]) acc[record.employee_id] = { present: 0, absent: 0, half_day: 0 };
-        if (record.status === 'present') acc[record.employee_id].present++;
-        else if (record.status === 'absent') acc[record.employee_id].absent++;
-        else if (record.status === 'half_day') acc[record.employee_id].half_day++;
+      const attendanceSummary = (attendanceData || []).reduce((acc, r: any) => {
+        if (!acc[r.employee_id]) acc[r.employee_id] = { absent: 0, half_day: 0, on_leave: 0 };
+        if (r.status === 'absent') acc[r.employee_id].absent++;
+        else if (r.status === 'half_day') acc[r.employee_id].half_day++;
+        else if (r.status === 'on_leave') acc[r.employee_id].on_leave++;
         return acc;
-      }, {} as Record<string, { present: number; absent: number; half_day: number }>) || {};
+      }, {} as Record<string, { absent: number; half_day: number; on_leave: number }>);
 
-      const payrollInserts = payrollForm.employee_ids.map(employeeId => {
-        const salaryStructure = salaryStructures.find(s => s.employee_id === employeeId);
+      // Unpaid approved leave overlapping the month
+      const { data: leaveData } = await supabase
+        .from('leave_applications')
+        .select('employee_id, start_date, end_date, total_days, leave_type:leave_types(is_paid)')
+        .eq('status', 'approved')
+        .lte('start_date', endDate)
+        .gte('end_date', startDate);
+
+      const unpaidLeaveDays: Record<string, number> = {};
+      (leaveData || []).forEach((l: any) => {
+        if (l.leave_type?.is_paid === false) {
+          unpaidLeaveDays[l.employee_id] = (unpaidLeaveDays[l.employee_id] || 0) + (Number(l.total_days) || 0);
+        }
+      });
+
+      const breakdowns: Record<string, { absent: number; half: number; unpaid: number; daily: number }> = {};
+
+      const payrollInserts = payrollForm.employee_ids.map((employeeId) => {
+        const salaryStructure = salaryStructures.find((s) => s.employee_id === employeeId);
         if (!salaryStructure) throw new Error(`No salary structure found for employee ${employeeId}`);
 
-        const attendance = attendanceSummary[employeeId] || { present: 0, absent: 0, half_day: 0 };
-        const totalDays = attendance.present + attendance.absent + attendance.half_day;
-        const workingDays = totalDays || 22; // Default to 22 working days if no attendance data
-        const dailyRate = salaryStructure.basic_salary / workingDays;
-        const attendanceDeduction = (attendance.absent * dailyRate) + (attendance.half_day * dailyRate * 0.5);
+        const att = attendanceSummary[employeeId] || { absent: 0, half_day: 0, on_leave: 0 };
+        const unpaidLeave = unpaidLeaveDays[employeeId] ?? att.on_leave; // fallback: treat on_leave as unpaid
+        const dailyRate = salaryStructure.basic_salary / daysInMonth;
+        const attendanceDeduction =
+          att.absent * dailyRate + att.half_day * dailyRate * 0.5 + unpaidLeave * dailyRate;
 
-        // Calculate advance deduction for this month
-        const employeeAdvances = advances.filter(a => 
-          a.employee_id === employeeId && 
-          (a.status === 'repaying' || a.status === 'approved') &&
-          a.remaining_amount > 0
+        const employeeAdvances = advances.filter(
+          (a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0,
         );
-        const advanceDeduction = employeeAdvances.reduce((sum, advance) => 
-          Math.min(sum + (advance.monthly_deduction || advance.amount), advance.remaining_amount), 0
+        const advanceDeduction = employeeAdvances.reduce(
+          (sum, advance) => sum + Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount),
+          0,
         );
 
-        const grossSalary = salaryStructure.basic_salary + 
-          (salaryStructure.housing_allowance || 0) + 
-          (salaryStructure.transport_allowance || 0) + 
-          (salaryStructure.medical_allowance || 0) + 
+        const grossSalary =
+          salaryStructure.basic_salary +
+          (salaryStructure.housing_allowance || 0) +
+          (salaryStructure.transport_allowance || 0) +
+          (salaryStructure.medical_allowance || 0) +
           (salaryStructure.other_allowances || 0);
 
-        const totalDeductions = attendanceDeduction + advanceDeduction + 
-          (salaryStructure.tax_deduction || 0) + 
-          (salaryStructure.other_deductions || 0);
+        const totalDeductions =
+          attendanceDeduction + advanceDeduction + (salaryStructure.tax_deduction || 0) + (salaryStructure.other_deductions || 0);
 
-        const netSalary = grossSalary - totalDeductions;
+        breakdowns[employeeId] = { absent: att.absent, half: att.half_day, unpaid: unpaidLeave, daily: dailyRate };
 
         return {
           employee_id: employeeId,
@@ -535,7 +556,7 @@ export default function Payroll() {
           advance_deduction: advanceDeduction,
           tax_deduction: salaryStructure.tax_deduction || 0,
           other_deductions: salaryStructure.other_deductions || 0,
-          net_salary: netSalary,
+          net_salary: grossSalary - totalDeductions,
           status: 'pending',
         };
       });
@@ -543,24 +564,16 @@ export default function Payroll() {
       const { error } = await supabase.from('payroll').insert(payrollInserts);
       if (error) throw error;
 
-      // Update advance remaining amounts
       for (const employeeId of payrollForm.employee_ids) {
-        const employeeAdvances = advances.filter(a => 
-          a.employee_id === employeeId && 
-          (a.status === 'repaying' || a.status === 'approved') &&
-          a.remaining_amount > 0
+        const employeeAdvances = advances.filter(
+          (a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0,
         );
-
         for (const advance of employeeAdvances) {
           const deduction = Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount);
           const newRemaining = advance.remaining_amount - deduction;
-          
           await supabase
             .from('advances')
-            .update({ 
-              remaining_amount: newRemaining,
-              status: newRemaining <= 0 ? 'completed' : advance.status
-            })
+            .update({ remaining_amount: newRemaining, status: newRemaining <= 0 ? 'completed' : advance.status })
             .eq('id', advance.id);
         }
       }
@@ -948,8 +961,8 @@ export default function Payroll() {
             <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Recent Payslips</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Period</TableHead><TableHead>Gross</TableHead><TableHead>Deductions</TableHead><TableHead>Net Salary</TableHead><TableHead>Status</TableHead>{isAdmin && <TableHead>Actions</TableHead>}</TableRow></TableHeader>
-                <TableBody>{payrolls.length === 0 ? <TableRow><TableCell colSpan={isAdmin ? 7 : 6} className="text-center text-muted-foreground">No payslips found</TableCell></TableRow> : payrolls.map((p) => <TableRow key={p.id}><TableCell className="font-medium">{employeeName(p.employees)}</TableCell><TableCell>{format(new Date(p.year, p.month - 1), 'MMMM yyyy')}</TableCell><TableCell>{formatCurrency(p.gross_salary)}</TableCell><TableCell>{formatCurrency((p.attendance_deduction || 0) + (p.advance_deduction || 0) + (p.tax_deduction || 0) + (p.other_deductions || 0))}</TableCell><TableCell className="font-semibold">{formatCurrency(p.net_salary)}</TableCell><TableCell><Badge className={p.status === 'paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}>{p.status}</Badge></TableCell>{isAdmin && <TableCell><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openEditPayroll(p)}><Pencil className="h-4 w-4" /></Button><AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="outline" className="text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete this payslip?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deletePayroll.mutate(p.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></TableCell>}</TableRow>)}</TableBody>
+                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Period</TableHead><TableHead>Gross</TableHead><TableHead>Deductions</TableHead><TableHead>Net Salary</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{payrolls.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No payslips found</TableCell></TableRow> : payrolls.map((p) => <TableRow key={p.id}><TableCell className="font-medium">{employeeName(p.employees)}</TableCell><TableCell>{format(new Date(p.year, p.month - 1), 'MMMM yyyy')}</TableCell><TableCell>{formatCurrency(p.gross_salary)}</TableCell><TableCell>{formatCurrency((p.attendance_deduction || 0) + (p.advance_deduction || 0) + (p.tax_deduction || 0) + (p.other_deductions || 0))}</TableCell><TableCell className="font-semibold">{formatCurrency(p.net_salary)}</TableCell><TableCell><Badge className={p.status === 'paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}>{p.status}</Badge></TableCell><TableCell><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setPrintPayslip(p)}><Printer className="h-4 w-4" /></Button>{isAdmin && <><Button size="sm" variant="outline" onClick={() => openEditPayroll(p)}><Pencil className="h-4 w-4" /></Button><AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="outline" className="text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete this payslip?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deletePayroll.mutate(p.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></>}</div></TableCell></TableRow>)}</TableBody>
               </Table>
             </CardContent>
           </Card>
@@ -963,10 +976,10 @@ export default function Payroll() {
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Requests</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead></TableRow></TableHeader>
-                <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
+                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Requests</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
                   const remaining = statement.netOutstanding - statement.salaryDeductions;
-                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.netOutstanding)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell></TableRow>;
+                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.netOutstanding)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => setPrintStatementEmpId(statement.employee.id)}><Printer className="mr-1 h-4 w-4" />Print</Button></TableCell></TableRow>;
                 })}</TableBody>
               </Table>
             </CardContent>
@@ -1017,6 +1030,38 @@ export default function Payroll() {
             </div>
             <Button onClick={() => updatePayroll.mutate()} disabled={updatePayroll.isPending} className="w-full">Save Changes</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!printPayslip} onOpenChange={(o) => { if (!o) setPrintPayslip(null); }}>
+        <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Payslip Preview</DialogTitle></DialogHeader>
+          {printPayslip && (
+            <PrintablePayslip
+              payroll={printPayslip as any}
+              salary={salaryStructures.find((s) => s.employee_id === printPayslip.employee_id) as any}
+              outstandingAfter={advances
+                .filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying'))
+                .reduce((s, a) => s + (Number(a.remaining_amount) || 0), 0)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!printStatementEmpId} onOpenChange={(o) => { if (!o) setPrintStatementEmpId(null); }}>
+        <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Statement of Account</DialogTitle></DialogHeader>
+          {printStatementEmpId && (() => {
+            const emp = employees.find((e) => e.id === printStatementEmpId);
+            if (!emp) return null;
+            return (
+              <PrintableStatement
+                employee={emp as any}
+                advances={advances.filter((a) => a.employee_id === printStatementEmpId) as any}
+                payrolls={payrolls.filter((p) => p.employee_id === printStatementEmpId) as any}
+              />
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </DashboardLayout>

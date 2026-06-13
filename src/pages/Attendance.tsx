@@ -23,7 +23,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { Attendance as AttendanceType } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Search, Calendar, Clock, MapPin, Loader2, CheckCheck } from 'lucide-react';
+import { Search, Calendar, Clock, MapPin, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -134,7 +134,7 @@ export default function Attendance() {
     }
   };
 
-  // Merge: when admin/HR, show every active employee for the date even if not yet marked.
+  // Merge: when admin/HR, show every active employee; default unmarked = Present.
   const mergedRows = (() => {
     if (!canManage) return attendance ?? [];
     const byEmp = new Map((attendance ?? []).map((a) => [a.employee.id, a]));
@@ -145,7 +145,7 @@ export default function Attendance() {
         id: `placeholder-${emp.id}`,
         employee_id: emp.id,
         date: selectedDate,
-        status: 'not_marked' as any,
+        status: 'present' as any,
         check_in: null,
         check_out: null,
         overtime_minutes: 0,
@@ -201,18 +201,9 @@ export default function Attendance() {
             </div>
           </div>
           {canManage && (
-            <Button
-              onClick={() => markAllPresent.mutate()}
-              disabled={markAllPresent.isPending || !employees?.length}
-              className="gap-2"
-            >
-              {markAllPresent.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCheck className="h-4 w-4" />
-              )}
-              Mark all Present
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              Default status is <span className="font-medium text-success">Present</span>. Change only for Absent, Half Day, On Leave, or Holiday.
+            </p>
           )}
         </div>
 

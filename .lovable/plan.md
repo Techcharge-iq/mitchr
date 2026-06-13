@@ -1,50 +1,61 @@
-## Issues
+## Scope (minimum credits, ~3–4 edits, no DB changes)
 
-1. **Leave application RLS error**: Inserting a leave application fails because the existing INSERT policy on `leave_applications` only allows `employee_id = get_employee_id(auth.uid())`. Admin/HR/managers (and any user submitting on behalf of someone else, or a user whose auth account isn't yet linked to an employee row) get blocked.
-2. **Attendance is hard to manage**: The Attendance page lists records and has a `markAttendance` mutation, but there's no UI to actually mark or change status per employee. Users want a simple way to manage daily attendance.
+Three files touched. No migrations, no schema changes. All deduction logic stays client-side using existing columns (`attendance.status`, `leave_applications`, `advances`, `salary_structures`, `payroll.attendance_deduction` / `advance_deduction`).
 
 ---
 
-## Fix 1 — Leave RLS (DB migration)
+### 1. Attendance — default = Present (`src/pages/Attendance.tsx`)
 
-Add an INSERT policy that lets managers/HR/admin file leave for anyone, while still letting employees file their own:
+- Change the merged view so unmarked employees display as **Present** by default (replace the `not_marked` placeholder + badge with `present`).
+- Keep the per-row `Select` (Admin can change to Absent, Half Day, On Leave, Holiday).
+- Remove the "Mark all Present" button (now redundant) **and** keep `markAttendance` upsert exactly as-is so admin overrides still persist.
+- No salary/deduction calculation happens here — confirmed; the page only writes status.
 
-```sql
-CREATE POLICY "Admin/HR/Managers can create leave applications"
-ON public.leave_applications FOR INSERT
-TO authenticated
-WITH CHECK (public.is_manager_or_above(auth.uid()));
-```
+### 2. Payroll — auto-calculate deductions + breakdown (`src/pages/Payroll.tsx`)
 
-(Existing "Users can create leave applications" policy stays — employees keep filing their own; PostgreSQL OR-combines permissive policies.)
+Update `generatePayroll` only:
 
-## Fix 2 — Leave UI (`src/pages/Leave.tsx`)
+- Treat **unmarked days as Present** (so no deduction unless explicitly Absent/Half-day).
+- Fetch unpaid leave for the month from `leave_applications` (status = `approved`, overlap with month, and `leave_type` flagged unpaid — fallback: count days where attendance status = `on_leave` AND the matching leave_application's leave_type `is_paid = false`; if unsure, count `on_leave` as unpaid by default). Add those days into `attendanceDeduction` at daily rate.
+- Daily rate = `basic_salary / 30` (calendar-month standard) so deductions are stable regardless of how many rows exist.
+- Persist a per-line breakdown (absent_days, half_days, unpaid_leave_days) by stuffing into existing `notes`/`remarks` text field if present; otherwise compute on-the-fly when rendering the payslip — **no schema change**.
 
-- For non-manager users (`!is_manager_or_above`), hide the employee selector and auto-default `employee_id` to the current user's employee record (fetched via a lightweight query of `employees` where `user_id = auth.uid()`).
-- Managers/HR/admin keep the employee dropdown.
-- Surface clearer error toast if the current user has no linked employee record ("Your account is not linked to an employee profile — contact admin").
+Edit Payslip dialog: add read-only "Deduction Breakdown" block listing Absent / Half-day / Unpaid Leave / Advance amounts.
 
-## Fix 3 — Attendance management UI (`src/pages/Attendance.tsx`)
+### 3. Professional A4 Payslip + SOA print (`src/pages/Payroll.tsx`)
 
-Make the existing page actually usable for admin/HR:
+- Add a **"View / Print Payslip"** action button per payroll row that opens a print-ready dialog rendering an A4 layout:
+  - Header: company name + month/year
+  - Employee block: name, code, department, designation, bank acct
+  - Earnings table: Basic, Housing, Transport, Medical, Other → Gross
+  - Deductions table: Absent (days × rate), Half-day (days × rate × 0.5), Unpaid Leave, Advance, Tax, Other → Total Deductions
+  - **Net Salary** highlighted
+  - **Outstanding advance balance after deduction** (sum of `remaining_amount` for that employee post-run)
+  - `window.print()` button; CSS `@media print` hides app chrome, A4 page size.
 
-- Add an **"All Employees" mode toggle** so when no attendance rows exist for the selected date, every active employee still appears in the table (left-joined with their attendance record for that date, if any).
-- Add an **Actions column** (admin/HR only via `useAuth`) with a small `Select` (Present / Absent / Half Day / On Leave / Holiday) that calls the existing `markAttendance` mutation on change. Existing rows show current status as the value; missing rows show "Not marked".
-- Add a **"Mark all Present"** button at the top (admin/HR only) that bulk-upserts the visible employees for the selected date.
-- Keep the existing filters, search, and stats cards.
+- Statements tab: add a **"Print / Export Statement"** button per employee row that opens a printable SOA showing:
+  - All advances (date, purpose, amount, monthly deduction)
+  - Monthly payroll history (month, gross, advance deduction, net)
+  - **Running balance column** (outstanding after each event, chronologically merged)
+  - Same `@media print` styling, A4.
 
-No new tables; uses existing `attendance` table and its RLS (admin/HR already has full manage policy).
+Export: print-to-PDF via browser (no new deps → keeps credits low).
 
 ---
 
 ## Files touched
 
-- New migration: add INSERT policy on `leave_applications` for managers/HR/admin.
-- `src/pages/Leave.tsx` — conditional employee selector + safer error handling.
-- `src/pages/Attendance.tsx` — show all active employees, per-row status selector, "Mark all Present" bulk action (admin/HR only).
+1. `src/pages/Attendance.tsx` — default Present, drop bulk button.
+2. `src/pages/Payroll.tsx` — deduction calc upgrade, A4 payslip print dialog, SOA print dialog, deduction breakdown in edit form.
+3. (Optional) tiny shared `src/components/payroll/PrintablePayslip.tsx` + `PrintableStatement.tsx` to keep `Payroll.tsx` readable.
+
+No DB migration. No new dependencies. Existing RLS and mutations untouched.
 
 ## Verification
 
-- As employee: submit leave for self → succeeds (no RLS error).
-- As admin/HR: submit leave for any employee → succeeds.
-- As admin/HR on `/attendance`: pick a date, see all active employees, change a row's status via dropdown, "Mark all Present" updates everyone in one click; stats cards refresh.
+- Mark no attendance for an employee → payroll shows 0 absent deduction.
+- Mark 2 days Absent + 1 Half-day → payroll deducts `2.5 × (basic/30)`.
+- Approved unpaid leave for 3 days → deducted at daily rate.
+- Active advance with monthly deduction → deducted, `remaining_amount` decreases, payslip shows outstanding.
+- Click "Print" on payslip → clean A4 layout; only the payslip prints.
+- SOA for an employee shows chronological ledger with running balance.
