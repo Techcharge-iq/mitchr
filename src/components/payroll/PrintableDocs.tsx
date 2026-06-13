@@ -4,6 +4,11 @@ import { Printer } from 'lucide-react';
 
 const fmt = (v?: number | null) => `OMR ${(Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const parseDate = (value?: string | null) => {
+  const date = new Date(value ?? '');
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+
 const displayAdvanceStatus = (status?: string | null, amount?: number, remaining?: number) => {
   if (status === 'rejected') return 'Rejected';
   const remainingAmount = Number(remaining || 0);
@@ -13,6 +18,12 @@ const displayAdvanceStatus = (status?: string | null, amount?: number, remaining
   if (remainingAmount === original) return 'Pending';
   return status || 'Pending';
 };
+
+const sortAdvancesByDate = (advances: Advance[]) =>
+  [...advances].sort((a, b) => parseDate(a.created_at ?? a.expense_date) - parseDate(b.created_at ?? b.expense_date));
+
+const sortPayrollsByDate = (payrolls: PayrollRecord[]) =>
+  [...payrolls].sort((a, b) => new Date(a.year, a.month - 1).getTime() - new Date(b.year, b.month - 1).getTime());
 
 type Employee = { id: string; first_name: string; last_name: string; employee_code: string };
 
@@ -183,14 +194,67 @@ export function PrintableStatement({
   advances: Advance[];
   payrolls: PayrollRecord[];
 }) {
-  const eligibleAdvances = advances.filter((a) => a.status !== 'pending' && a.status !== 'rejected');
-  const totalAdvances = eligibleAdvances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-  const totalRecovered = payrolls.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
+  const sortedAdvances = sortAdvancesByDate(advances);
+  const sortedPayrolls = sortPayrollsByDate(payrolls);
+
+  const advanceRecovery = sortedAdvances
+    .filter((a) => a.status !== 'rejected')
+    .map((advance) => ({
+      id: advance.id,
+      amount: Number(advance.amount) || 0,
+      remaining: Number(advance.amount) || 0,
+      recovered: 0,
+    }));
+
+  const recoveredByAdvanceId = new Map<string, number>();
+  let recoveryQueue = advanceRecovery;
+
+  sortedPayrolls.forEach((payroll) => {
+    let remainingRecovery = Number(payroll.advance_deduction || 0);
+    for (const advance of recoveryQueue) {
+      if (remainingRecovery <= 0) break;
+      if (advance.remaining <= 0) continue;
+      const applied = Math.min(advance.remaining, remainingRecovery);
+      advance.remaining -= applied;
+      advance.recovered += applied;
+      remainingRecovery -= applied;
+    }
+  });
+
+  recoveryQueue.forEach((advance) => {
+    recoveredByAdvanceId.set(advance.id, advance.recovered);
+  });
+
+  const computedAdvances = advances.map((advance) => {
+    if (advance.status === 'rejected') {
+      return {
+        ...advance,
+        computedRemaining: Number(advance.amount) || 0,
+        computedStatus: 'Rejected',
+      };
+    }
+
+    const totalAmount = Number(advance.amount) || 0;
+    const recovered = recoveredByAdvanceId.get(advance.id) ?? 0;
+    const remaining = Math.max(totalAmount - recovered, 0);
+    const computedStatus = remaining <= 0 ? 'Completed' : recovered > 0 ? 'Partially Recovered' : 'Pending';
+
+    return {
+      ...advance,
+      computedRemaining: remaining,
+      computedStatus,
+    };
+  });
+
+  const totalAdvances = computedAdvances
+    .filter((a) => a.status !== 'rejected')
+    .reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  const totalRecovered = sortedPayrolls.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
   const outstanding = totalAdvances - totalRecovered;
 
-  const advanceDetails = eligibleAdvances
+  const advanceDetails = computedAdvances
     .slice()
-    .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
+    .sort((a, b) => parseDate(a.created_at ?? a.expense_date) - parseDate(b.created_at ?? b.expense_date));
 
   const salaryHistory = payrolls
     .slice()
@@ -261,17 +325,17 @@ export function PrintableStatement({
         <table>
           <thead><tr><th>Date</th><th>Purpose</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Monthly Deduction</th><th style={{ textAlign: 'right' }}>Remaining</th><th>Status</th></tr></thead>
           <tbody>
-            {advances.length === 0 ? (
+            {computedAdvances.length === 0 ? (
               <tr><td colSpan={6} style={{ textAlign: 'center', color: '#888' }}>No advances</td></tr>
             ) : (
-              advances.map((a) => (
+              computedAdvances.map((a) => (
                 <tr key={a.id}>
                   <td>{a.expense_date ? format(new Date(a.expense_date), 'dd MMM yyyy') : '-'}</td>
                   <td>{a.purpose || '-'}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(a.amount)}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(a.monthly_deduction)}</td>
-                  <td style={{ textAlign: 'right' }}>{fmt(a.remaining_amount)}</td>
-                  <td>{displayAdvanceStatus(a.status, a.amount, a.remaining_amount)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(a.computedRemaining)}</td>
+                  <td>{a.computedStatus}</td>
                 </tr>
               ))
             )}

@@ -7,15 +7,46 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { User, Building2, Bell, Shield, Palette } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 export default function Settings() {
   const { user, userRole } = useAuth();
   const [notifications, setNotifications] = useState({ email: true, push: false, leave: true, payroll: true });
+  const [companySettings, setCompanySettings] = useState({
+    companyName: '',
+    industry: '',
+    workingHoursPerMonth: '300',
+    currency: 'OMR',
+  });
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
 
-  const handleSave = () => {
-    toast.success('Settings saved successfully');
+  const settingsStorageKey = user ? `company-settings-${user.id}` : 'company-settings-guest';
+
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const stored = window.localStorage.getItem(settingsStorageKey);
+      if (stored) {
+        setCompanySettings(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.warn('Unable to load company settings from storage', error);
+    }
+  }, [settingsStorageKey, user]);
+
+  const handleSaveCompanySettings = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSavingCompany(true);
+    try {
+      window.localStorage.setItem(settingsStorageKey, JSON.stringify(companySettings));
+      toast.success('Company settings saved successfully');
+    } catch (error) {
+      console.error('Failed to save company settings', error);
+      toast.error('Unable to save company settings');
+    } finally {
+      setIsSavingCompany(false);
+    }
   };
 
   return (
@@ -67,28 +98,52 @@ export default function Settings() {
               <CardTitle>Company Settings</CardTitle>
               <CardDescription>Configure organization-wide settings</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Company Name</Label>
-                  <Input placeholder="Your Company Name" />
+            <form onSubmit={handleSaveCompanySettings} className="space-y-6">
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="company-name">Company Name</Label>
+                    <Input
+                      id="company-name"
+                      value={companySettings.companyName}
+                      onChange={(e) => setCompanySettings({ ...companySettings, companyName: e.target.value })}
+                      placeholder="Your Company Name"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="industry">Industry</Label>
+                    <Input
+                      id="industry"
+                      value={companySettings.industry}
+                      onChange={(e) => setCompanySettings({ ...companySettings, industry: e.target.value })}
+                      placeholder="e.g. Sales & Distribution"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="working-hours">Working Hours (per month)</Label>
+                    <Input
+                      id="working-hours"
+                      type="number"
+                      value={companySettings.workingHoursPerMonth}
+                      onChange={(e) => setCompanySettings({ ...companySettings, workingHoursPerMonth: e.target.value })}
+                      min={1}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="currency">Currency</Label>
+                    <Input
+                      id="currency"
+                      value={companySettings.currency}
+                      onChange={(e) => setCompanySettings({ ...companySettings, currency: e.target.value })}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label>Industry</Label>
-                  <Input placeholder="e.g. Sales & Distribution" />
-                </div>
-                <div>
-                  <Label>Working Hours (per month)</Label>
-                  <Input type="number" defaultValue="300" />
-                </div>
-                <div>
-                  <Label>Currency</Label>
-                  <Input defaultValue="PKR" />
-                </div>
-              </div>
 
-              <Button onClick={handleSave}>Save Changes</Button>
-            </CardContent>
+                <Button type="submit" disabled={isSavingCompany}>
+                  Save Changes
+                </Button>
+              </CardContent>
+            </form>
           </Card>
         </TabsContent>
 
