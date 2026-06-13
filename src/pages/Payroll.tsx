@@ -10,6 +10,7 @@ import {
   History,
   Pencil,
   Plus,
+  Printer,
   ReceiptText,
   Trash2,
   Wallet,
