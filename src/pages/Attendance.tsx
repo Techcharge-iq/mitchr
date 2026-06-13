@@ -134,7 +134,7 @@ export default function Attendance() {
     }
   };
 
-  // Merge: when admin/HR, show every active employee for the date even if not yet marked.
+  // Merge: when admin/HR, show every active employee; default unmarked = Present.
   const mergedRows = (() => {
     if (!canManage) return attendance ?? [];
     const byEmp = new Map((attendance ?? []).map((a) => [a.employee.id, a]));
@@ -145,7 +145,7 @@ export default function Attendance() {
         id: `placeholder-${emp.id}`,
         employee_id: emp.id,
         date: selectedDate,
-        status: 'not_marked' as any,
+        status: 'present' as any,
         check_in: null,
         check_out: null,
         overtime_minutes: 0,
