@@ -23,7 +23,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { Attendance as AttendanceType } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Search, Calendar, Clock, MapPin, Loader2, CheckCheck } from 'lucide-react';
+import { Search, Calendar, Clock, MapPin, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
