@@ -23,6 +23,10 @@ export default function Settings() {
 
   const settingsStorageKey = user ? `company-settings-${user.id}` : 'company-settings-guest';
 
+  const handleSave = () => {
+    toast.success('Settings saved successfully');
+  };
+
   useEffect(() => {
     if (!user) return;
     try {
