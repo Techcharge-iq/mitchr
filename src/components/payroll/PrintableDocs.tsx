@@ -4,6 +4,16 @@ import { Printer } from 'lucide-react';
 
 const fmt = (v?: number | null) => `OMR ${(Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const displayAdvanceStatus = (status?: string | null, amount?: number, remaining?: number) => {
+  if (status === 'rejected') return 'Rejected';
+  const remainingAmount = Number(remaining || 0);
+  const original = Number(amount || 0);
+  if (remainingAmount <= 0) return 'Completed';
+  if (remainingAmount < original) return 'Partially Recovered';
+  if (remainingAmount === original) return 'Pending';
+  return status || 'Pending';
+};
+
 type Employee = { id: string; first_name: string; last_name: string; employee_code: string };
 
 type PayrollRecord = {
@@ -173,49 +183,63 @@ export function PrintableStatement({
   advances: Advance[];
   payrolls: PayrollRecord[];
 }) {
-  // Build chronological ledger with running balance.
-  type Entry = { date: string; type: 'Advance' | 'Salary Deduction' | 'Salary Paid'; ref: string; debit: number; credit: number };
-  const entries: Entry[] = [];
-  advances.forEach((a) => {
-    if (a.status === 'approved' || a.status === 'repaying' || a.status === 'completed') {
-      entries.push({
-        date: a.expense_date || a.created_at || '',
-        type: 'Advance',
-        ref: a.purpose || 'Advance',
-        debit: Number(a.amount) || 0,
-        credit: 0,
-      });
-    }
+  const eligibleAdvances = advances.filter((a) => a.status !== 'pending' && a.status !== 'rejected');
+  const totalAdvances = eligibleAdvances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  const totalRecovered = payrolls.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
+  const outstanding = totalAdvances - totalRecovered;
+
+  const advanceDetails = eligibleAdvances
+    .slice()
+    .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
+
+  const salaryHistory = payrolls
+    .slice()
+    .sort((a, b) => new Date(a.year, a.month - 1).getTime() - new Date(b.year, b.month - 1).getTime());
+
+  type LedgerEntry = {
+    date: string;
+    source: 'Advance' | 'Payroll Recovery';
+    transactionId: string;
+    payslipRef?: string;
+    advanceRef?: string;
+    debit: number;
+    credit: number;
+    balance: number;
+  };
+
+  const ledgerEntries: Omit<LedgerEntry, 'balance'>[] = [];
+  advanceDetails.forEach((a) => {
+    ledgerEntries.push({
+      date: a.expense_date || a.created_at || '',
+      source: 'Advance',
+      transactionId: a.id,
+      payslipRef: undefined,
+      advanceRef: a.purpose || 'Advance',
+      debit: Number(a.amount) || 0,
+      credit: 0,
+    });
   });
-  payrolls.forEach((p) => {
-    const periodDate = new Date(p.year, p.month - 1, 28).toISOString();
+
+  salaryHistory.forEach((p) => {
     if ((p.advance_deduction || 0) > 0) {
-      entries.push({
-        date: periodDate,
-        type: 'Salary Deduction',
-        ref: `${format(new Date(p.year, p.month - 1), 'MMM yyyy')} payroll`,
+      ledgerEntries.push({
+        date: new Date(p.year, p.month - 1, 28).toISOString(),
+        source: 'Payroll Recovery',
+        transactionId: p.id,
+        payslipRef: `${format(new Date(p.year, p.month - 1), 'MMM yyyy')} payroll`,
+        advanceRef: undefined,
         debit: 0,
         credit: Number(p.advance_deduction) || 0,
       });
     }
-    entries.push({
-      date: periodDate,
-      type: 'Salary Paid',
-      ref: `${format(new Date(p.year, p.month - 1), 'MMM yyyy')} net salary`,
-      debit: 0,
-      credit: 0,
-    });
   });
-  entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  ledgerEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   let running = 0;
-  const ledger = entries.map((e) => {
-    running += e.debit - e.credit;
-    return { ...e, balance: running };
+  const ledger = ledgerEntries.map((entry) => {
+    running += entry.debit - entry.credit;
+    return { ...entry, balance: running };
   });
-  const outstanding = advances
-    .filter((a) => a.status === 'approved' || a.status === 'repaying')
-    .reduce((s, a) => s + (Number(a.remaining_amount) || 0), 0);
 
   return (
     <div>
@@ -247,7 +271,7 @@ export function PrintableStatement({
                   <td style={{ textAlign: 'right' }}>{fmt(a.amount)}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(a.monthly_deduction)}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(a.remaining_amount)}</td>
-                  <td>{a.status}</td>
+                  <td>{displayAdvanceStatus(a.status, a.amount, a.remaining_amount)}</td>
                 </tr>
               ))
             )}
@@ -285,8 +309,8 @@ export function PrintableStatement({
               ledger.map((e, i) => (
                 <tr key={i}>
                   <td>{e.date ? format(new Date(e.date), 'dd MMM yyyy') : '-'}</td>
-                  <td>{e.type}</td>
-                  <td>{e.ref}</td>
+                  <td>{e.source}</td>
+                  <td>{e.payslipRef || e.advanceRef || e.transactionId}</td>
                   <td style={{ textAlign: 'right' }}>{e.debit ? fmt(e.debit) : '-'}</td>
                   <td style={{ textAlign: 'right' }}>{e.credit ? fmt(e.credit) : '-'}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(e.balance)}</td>

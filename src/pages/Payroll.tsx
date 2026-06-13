@@ -137,7 +137,7 @@ const rebuildEmployeeAdvanceBalances = async (employeeId: string) => {
 
   const deductibleAdvances = advances
     .filter((advance) => advance.status !== 'pending' && advance.status !== 'rejected')
-    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+    .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
 
   payrolls.forEach((payroll) => {
     let deduction = Number(payroll.advance_deduction) || 0;
@@ -158,15 +158,19 @@ const rebuildEmployeeAdvanceBalances = async (employeeId: string) => {
   });
 
   const updates = advances.map((advance) => {
-    const newRemaining = Number((remainingById.get(advance.id) ?? Number(advance.amount)) || 0);
-    let newStatus = advance.status || 'pending';
+    const originalAmount = Number(advance.amount) || 0;
+    const newRemaining = Number((remainingById.get(advance.id) ?? originalAmount) || 0);
+    const recoveredAmount = originalAmount - newRemaining;
+    let newStatus: AdvanceStatus | null = advance.status || 'pending';
 
     if (advance.status === 'pending' || advance.status === 'rejected') {
       newStatus = advance.status || 'pending';
     } else if (newRemaining <= 0) {
       newStatus = 'completed';
-    } else if (advance.status === 'approved' || advance.status === 'repaying' || advance.status === 'completed') {
+    } else if (recoveredAmount > 0) {
       newStatus = 'repaying';
+    } else {
+      newStatus = 'approved';
     }
 
     return {
@@ -330,21 +334,21 @@ export default function Payroll() {
       .filter((advance) => advance.status === 'rejected' && advance.purpose !== 'Personal Advance')
       .reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
 
-    const totalAdvanceAmount = employeeAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
-
-    const outstandingBalance = employeeAdvances
-      .filter((advance) => advance.status === 'approved' || advance.status === 'repaying' || advance.status === 'completed')
-      .reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0);
+    const eligibleAdvances = employeeAdvances.filter((advance) => advance.status === 'approved' || advance.status === 'repaying' || advance.status === 'completed');
+    const totalAdvanceAmount = eligibleAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
+    const totalRecoveredAmount = employeePayrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0);
+    const outstandingBalance = totalAdvanceAmount - totalRecoveredAmount;
 
     const sortedAdvances = [...employeeAdvances].sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
 
     return {
       employee,
       totalAdvances: totalAdvanceAmount,
+      totalRecovered: totalRecoveredAmount,
       approvedExpenses: approvedExpenseAmount,
       rejectedExpenses: rejectedExpenseAmount,
       outstandingBalance,
-      salaryDeductions: employeePayrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0),
+      salaryDeductions: totalRecoveredAmount,
       latestActivity: sortedAdvances[0]?.created_at,
       requestCount: employeeAdvances.length,
       netOutstanding: outstandingBalance,
@@ -651,9 +655,9 @@ export default function Payroll() {
       if (error) throw error;
 
       for (const employeeId of payrollForm.employee_ids) {
-        const employeeAdvances = advances.filter(
-          (a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0,
-        );
+        const employeeAdvances = advances
+      .filter((a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0)
+      .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
         for (const advance of employeeAdvances) {
           const deduction = Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount);
           const newRemaining = advance.remaining_amount - deduction;
@@ -1061,12 +1065,17 @@ export default function Payroll() {
               <div><CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> Employee Statement</CardTitle><CardDescription>Complete employee ledger for advances, expenses, outstanding balances, and salary deductions.</CardDescription></div>
               <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}><SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="Filter employee" /></SelectTrigger><SelectContent><SelectItem value="all">All employees</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.id}>{employeeName(employee)}</SelectItem>)}</SelectContent></Select>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="space-y-4 overflow-x-auto">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Card className="bg-muted/80"><CardContent><p className="text-sm text-muted-foreground">Total Advances</p><p className="text-2xl font-semibold">{formatCurrency(selectedStatementRows.reduce((sum, statement) => sum + statement.totalAdvances, 0))}</p></CardContent></Card>
+                <Card className="bg-muted/80"><CardContent><p className="text-sm text-muted-foreground">Total Recovered</p><p className="text-2xl font-semibold">{formatCurrency(selectedStatementRows.reduce((sum, statement) => sum + statement.totalRecovered, 0))}</p></CardContent></Card>
+                <Card className="bg-muted/80"><CardContent><p className="text-sm text-muted-foreground">Outstanding Balance</p><p className="text-2xl font-semibold">{formatCurrency(selectedStatementRows.reduce((sum, statement) => sum + statement.outstandingBalance, 0))}</p></CardContent></Card>
+              </div>
               <Table>
-                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Requests</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
-                <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
-                  const remaining = statement.netOutstanding;
-                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.netOutstanding)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => setPrintStatementEmpId(statement.employee.id)}><Printer className="mr-1 h-4 w-4" />Print</Button></TableCell></TableRow>;
+                <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Advances</TableHead><TableHead>Total Recovered</TableHead><TableHead>Outstanding</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
+                  const outstanding = statement.outstandingBalance;
+                  return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.totalRecovered)}</TableCell><TableCell className={cn('font-semibold', outstanding > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(outstanding))} {outstanding > 0 ? 'recoverable' : 'payable'}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => setPrintStatementEmpId(statement.employee.id)}><Printer className="mr-1 h-4 w-4" />Print</Button></TableCell></TableRow>;
                 })}</TableBody>
               </Table>
             </CardContent>
