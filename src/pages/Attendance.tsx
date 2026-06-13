@@ -201,18 +201,9 @@ export default function Attendance() {
             </div>
           </div>
           {canManage && (
-            <Button
-              onClick={() => markAllPresent.mutate()}
-              disabled={markAllPresent.isPending || !employees?.length}
-              className="gap-2"
-            >
-              {markAllPresent.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCheck className="h-4 w-4" />
-              )}
-              Mark all Present
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              Default status is <span className="font-medium text-success">Present</span>. Change only for Absent, Half Day, On Leave, or Holiday.
+            </p>
           )}
         </div>
 
