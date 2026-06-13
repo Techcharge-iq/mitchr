@@ -112,6 +112,76 @@ const tabFromPath = (pathname: string): PayrollTab => {
 const formatCurrency = (value?: number | null) => `OMR ${(Number(value) || 0).toLocaleString()}`;
 const employeeName = (employee?: EmployeeOption | null) => employee ? `${employee.first_name} ${employee.last_name}` : 'Unassigned employee';
 
+const parseDateValue = (year: number, month: number) => new Date(year, month - 1, 1).getTime();
+
+const rebuildEmployeeAdvanceBalances = async (employeeId: string) => {
+  const [{ data: advancesData, error: advancesError }, { data: payrollsData, error: payrollsError }] = await Promise.all([
+    supabase
+      .from('advances')
+      .select('id, employee_id, amount, remaining_amount, monthly_deduction, purpose, status, created_at')
+      .eq('employee_id', employeeId),
+    supabase
+      .from('payroll')
+      .select('id, employee_id, month, year, advance_deduction')
+      .eq('employee_id', employeeId),
+  ]);
+
+  if (advancesError || payrollsError) {
+    throw advancesError || payrollsError;
+  }
+
+  const advances = advancesData ?? [];
+  const payrolls = (payrollsData ?? []).sort((a, b) => parseDateValue(a.year, a.month) - parseDateValue(b.year, b.month));
+
+  const remainingById = new Map<string, number>(advances.map((advance) => [advance.id, Number(advance.amount) || 0]));
+
+  const deductibleAdvances = advances
+    .filter((advance) => advance.status !== 'pending' && advance.status !== 'rejected')
+    .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+  payrolls.forEach((payroll) => {
+    let deduction = Number(payroll.advance_deduction) || 0;
+    if (deduction <= 0) return;
+
+    for (const advance of deductibleAdvances) {
+      const currentRemaining = Number(remainingById.get(advance.id) || 0);
+      if (currentRemaining <= 0) continue;
+
+      const maxForAdvance = Math.min(Number(advance.monthly_deduction) || Number(advance.amount) || 0, currentRemaining);
+      const applied = Math.min(maxForAdvance, deduction);
+      if (applied <= 0) continue;
+
+      remainingById.set(advance.id, currentRemaining - applied);
+      deduction -= applied;
+      if (deduction <= 0) break;
+    }
+  });
+
+  const updates = advances.map((advance) => {
+    const newRemaining = Number((remainingById.get(advance.id) ?? Number(advance.amount)) || 0);
+    let newStatus = advance.status || 'pending';
+
+    if (advance.status === 'pending' || advance.status === 'rejected') {
+      newStatus = advance.status || 'pending';
+    } else if (newRemaining <= 0) {
+      newStatus = 'completed';
+    } else if (advance.status === 'approved' || advance.status === 'repaying' || advance.status === 'completed') {
+      newStatus = 'repaying';
+    }
+
+    return {
+      id: advance.id,
+      remaining_amount: newRemaining,
+      status: newStatus,
+    };
+  });
+
+  if (updates.length > 0) {
+    const { error: updateError } = await supabase.from('advances').upsert(updates, { onConflict: ['id'] });
+    if (updateError) throw updateError;
+  }
+};
+
 const statusClassName = (status: string) => {
   switch (status) {
     case 'approved':
@@ -263,8 +333,10 @@ export default function Payroll() {
     const totalAdvanceAmount = employeeAdvances.reduce((sum, advance) => sum + (Number(advance.amount) || 0), 0);
 
     const outstandingBalance = employeeAdvances
-      .filter((advance) => advance.status === 'approved' || advance.status === 'repaying')
+      .filter((advance) => advance.status === 'approved' || advance.status === 'repaying' || advance.status === 'completed')
       .reduce((sum, advance) => sum + (Number(advance.remaining_amount) || 0), 0);
+
+    const sortedAdvances = [...employeeAdvances].sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
 
     return {
       employee,
@@ -273,9 +345,9 @@ export default function Payroll() {
       rejectedExpenses: rejectedExpenseAmount,
       outstandingBalance,
       salaryDeductions: employeePayrolls.reduce((sum, payroll) => sum + (Number(payroll.advance_deduction) || 0), 0),
-      latestActivity: employeeAdvances[0]?.created_at,
+      latestActivity: sortedAdvances[0]?.created_at,
       requestCount: employeeAdvances.length,
-      netOutstanding: outstandingBalance - approvedExpenseAmount + rejectedExpenseAmount,
+      netOutstanding: outstandingBalance,
     };
   }), [advances, employees, payrolls]);
 
@@ -335,6 +407,7 @@ export default function Payroll() {
         status: 'pending',
       });
       if (error) throw error;
+      await rebuildEmployeeAdvanceBalances(advanceForm.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['advances'] });
@@ -357,8 +430,9 @@ export default function Payroll() {
               salary_adjusted_at: new Date().toISOString(),
               start_deduction_date: new Date().toISOString().split('T')[0],
             };
-      const { error } = await supabase.from('advances').update(patch).eq('id', id);
+      const { data, error } = await supabase.from('advances').update(patch).select('employee_id').eq('id', id).single();
       if (error) throw error;
+      if (data?.employee_id) await rebuildEmployeeAdvanceBalances(data.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['advances'] });
@@ -372,7 +446,7 @@ export default function Payroll() {
       if (!editingAdvance) return;
       const amount = parseFloat(advanceForm.amount);
       const monthlyDeduction = advanceForm.monthly_deduction ? parseFloat(advanceForm.monthly_deduction) : amount;
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('advances')
         .update({
           amount,
@@ -382,8 +456,11 @@ export default function Payroll() {
           reason: advanceForm.others,
           expense_date: advanceForm.expense_date,
         })
-        .eq('id', editingAdvance.id);
+        .select('employee_id')
+        .eq('id', editingAdvance.id)
+        .single();
       if (error) throw error;
+      if (data?.employee_id) await rebuildEmployeeAdvanceBalances(data.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['advances'] });
@@ -397,8 +474,11 @@ export default function Payroll() {
 
   const deleteAdvance = useMutation({
     mutationFn: async (id: string) => {
+      const { data: currentAdvance, error: fetchError } = await supabase.from('advances').select('employee_id').eq('id', id).single();
+      if (fetchError) throw fetchError;
       const { error } = await supabase.from('advances').delete().eq('id', id);
       if (error) throw error;
+      if (currentAdvance?.employee_id) await rebuildEmployeeAdvanceBalances(currentAdvance.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['advances'] });
@@ -416,7 +496,7 @@ export default function Payroll() {
       const tax = parseFloat(payslipEditForm.tax_deduction) || 0;
       const oth = parseFloat(payslipEditForm.other_deductions) || 0;
       const net = gross - att - adv - tax - oth;
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('payroll')
         .update({
           gross_salary: gross,
@@ -428,8 +508,11 @@ export default function Payroll() {
           status: payslipEditForm.status,
           paid_at: payslipEditForm.status === 'paid' ? new Date().toISOString() : null,
         })
-        .eq('id', editingPayroll.id);
+        .select('employee_id')
+        .eq('id', editingPayroll.id)
+        .single();
       if (error) throw error;
+      if (data?.employee_id) await rebuildEmployeeAdvanceBalances(data.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payrolls'] });
@@ -441,8 +524,11 @@ export default function Payroll() {
 
   const deletePayroll = useMutation({
     mutationFn: async (id: string) => {
+      const { data: currentPayroll, error: fetchError } = await supabase.from('payroll').select('employee_id').eq('id', id).single();
+      if (fetchError) throw fetchError;
       const { error } = await supabase.from('payroll').delete().eq('id', id);
       if (error) throw error;
+      if (currentPayroll?.employee_id) await rebuildEmployeeAdvanceBalances(currentPayroll.employee_id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payrolls'] });
@@ -576,6 +662,7 @@ export default function Payroll() {
             .update({ remaining_amount: newRemaining, status: newRemaining <= 0 ? 'completed' : advance.status })
             .eq('id', advance.id);
         }
+        await rebuildEmployeeAdvanceBalances(employeeId);
       }
     },
     onSuccess: () => {
@@ -978,7 +1065,7 @@ export default function Payroll() {
               <Table>
                 <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Total Requests</TableHead><TableHead>Approved Expenses</TableHead><TableHead>Rejected Expenses</TableHead><TableHead>Salary Deductions</TableHead><TableHead>Outstanding</TableHead><TableHead>Remaining Payable / Recoverable</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
                 <TableBody>{selectedStatementRows.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No employee statement available</TableCell></TableRow> : selectedStatementRows.map((statement) => {
-                  const remaining = statement.netOutstanding - statement.salaryDeductions;
+                  const remaining = statement.netOutstanding;
                   return <TableRow key={statement.employee.id}><TableCell className="font-medium">{employeeName(statement.employee)}<div className="text-xs text-muted-foreground">{statement.requestCount} requests{statement.latestActivity ? ` • Latest ${format(new Date(statement.latestActivity), 'dd MMM yyyy')}` : ''}</div></TableCell><TableCell>{formatCurrency(statement.totalAdvances)}</TableCell><TableCell>{formatCurrency(statement.approvedExpenses)}</TableCell><TableCell>{formatCurrency(statement.rejectedExpenses)}</TableCell><TableCell>{formatCurrency(statement.salaryDeductions)}</TableCell><TableCell>{formatCurrency(statement.netOutstanding)}</TableCell><TableCell className={cn('font-semibold', remaining > 0 ? 'text-destructive' : 'text-success')}>{formatCurrency(Math.abs(remaining))} {remaining > 0 ? 'recoverable' : 'payable'}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => setPrintStatementEmpId(statement.employee.id)}><Printer className="mr-1 h-4 w-4" />Print</Button></TableCell></TableRow>;
                 })}</TableBody>
               </Table>
