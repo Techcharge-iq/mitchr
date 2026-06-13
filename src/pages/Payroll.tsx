@@ -476,54 +476,71 @@ export default function Payroll() {
     mutationFn: async () => {
       const month = parseInt(payrollForm.month);
       const year = parseInt(payrollForm.year);
-      
-      // Get attendance data for the month
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+      const endDate = `${month === 12 ? year + 1 : year}-${((month % 12) + 1).toString().padStart(2, '0')}-01`;
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      // Attendance for the month (only explicit overrides exist; unmarked = Present by default)
       const { data: attendanceData } = await supabase
         .from('attendance')
-        .select('employee_id, status')
-        .gte('date', `${year}-${month.toString().padStart(2, '0')}-01`)
-        .lt('date', `${year}-${(month + 1).toString().padStart(2, '0')}-01`);
+        .select('employee_id, status, date')
+        .gte('date', startDate)
+        .lt('date', endDate);
 
-      // Calculate attendance deductions
-      const attendanceSummary = attendanceData?.reduce((acc, record) => {
-        if (!acc[record.employee_id]) acc[record.employee_id] = { present: 0, absent: 0, half_day: 0 };
-        if (record.status === 'present') acc[record.employee_id].present++;
-        else if (record.status === 'absent') acc[record.employee_id].absent++;
-        else if (record.status === 'half_day') acc[record.employee_id].half_day++;
+      const attendanceSummary = (attendanceData || []).reduce((acc, r: any) => {
+        if (!acc[r.employee_id]) acc[r.employee_id] = { absent: 0, half_day: 0, on_leave: 0 };
+        if (r.status === 'absent') acc[r.employee_id].absent++;
+        else if (r.status === 'half_day') acc[r.employee_id].half_day++;
+        else if (r.status === 'on_leave') acc[r.employee_id].on_leave++;
         return acc;
-      }, {} as Record<string, { present: number; absent: number; half_day: number }>) || {};
+      }, {} as Record<string, { absent: number; half_day: number; on_leave: number }>);
 
-      const payrollInserts = payrollForm.employee_ids.map(employeeId => {
-        const salaryStructure = salaryStructures.find(s => s.employee_id === employeeId);
+      // Unpaid approved leave overlapping the month
+      const { data: leaveData } = await supabase
+        .from('leave_applications')
+        .select('employee_id, start_date, end_date, total_days, leave_type:leave_types(is_paid)')
+        .eq('status', 'approved')
+        .lte('start_date', endDate)
+        .gte('end_date', startDate);
+
+      const unpaidLeaveDays: Record<string, number> = {};
+      (leaveData || []).forEach((l: any) => {
+        if (l.leave_type?.is_paid === false) {
+          unpaidLeaveDays[l.employee_id] = (unpaidLeaveDays[l.employee_id] || 0) + (Number(l.total_days) || 0);
+        }
+      });
+
+      const breakdowns: Record<string, { absent: number; half: number; unpaid: number; daily: number }> = {};
+
+      const payrollInserts = payrollForm.employee_ids.map((employeeId) => {
+        const salaryStructure = salaryStructures.find((s) => s.employee_id === employeeId);
         if (!salaryStructure) throw new Error(`No salary structure found for employee ${employeeId}`);
 
-        const attendance = attendanceSummary[employeeId] || { present: 0, absent: 0, half_day: 0 };
-        const totalDays = attendance.present + attendance.absent + attendance.half_day;
-        const workingDays = totalDays || 22; // Default to 22 working days if no attendance data
-        const dailyRate = salaryStructure.basic_salary / workingDays;
-        const attendanceDeduction = (attendance.absent * dailyRate) + (attendance.half_day * dailyRate * 0.5);
+        const att = attendanceSummary[employeeId] || { absent: 0, half_day: 0, on_leave: 0 };
+        const unpaidLeave = unpaidLeaveDays[employeeId] ?? att.on_leave; // fallback: treat on_leave as unpaid
+        const dailyRate = salaryStructure.basic_salary / daysInMonth;
+        const attendanceDeduction =
+          att.absent * dailyRate + att.half_day * dailyRate * 0.5 + unpaidLeave * dailyRate;
 
-        // Calculate advance deduction for this month
-        const employeeAdvances = advances.filter(a => 
-          a.employee_id === employeeId && 
-          (a.status === 'repaying' || a.status === 'approved') &&
-          a.remaining_amount > 0
+        const employeeAdvances = advances.filter(
+          (a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0,
         );
-        const advanceDeduction = employeeAdvances.reduce((sum, advance) => 
-          Math.min(sum + (advance.monthly_deduction || advance.amount), advance.remaining_amount), 0
+        const advanceDeduction = employeeAdvances.reduce(
+          (sum, advance) => sum + Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount),
+          0,
         );
 
-        const grossSalary = salaryStructure.basic_salary + 
-          (salaryStructure.housing_allowance || 0) + 
-          (salaryStructure.transport_allowance || 0) + 
-          (salaryStructure.medical_allowance || 0) + 
+        const grossSalary =
+          salaryStructure.basic_salary +
+          (salaryStructure.housing_allowance || 0) +
+          (salaryStructure.transport_allowance || 0) +
+          (salaryStructure.medical_allowance || 0) +
           (salaryStructure.other_allowances || 0);
 
-        const totalDeductions = attendanceDeduction + advanceDeduction + 
-          (salaryStructure.tax_deduction || 0) + 
-          (salaryStructure.other_deductions || 0);
+        const totalDeductions =
+          attendanceDeduction + advanceDeduction + (salaryStructure.tax_deduction || 0) + (salaryStructure.other_deductions || 0);
 
-        const netSalary = grossSalary - totalDeductions;
+        breakdowns[employeeId] = { absent: att.absent, half: att.half_day, unpaid: unpaidLeave, daily: dailyRate };
 
         return {
           employee_id: employeeId,
@@ -535,7 +552,7 @@ export default function Payroll() {
           advance_deduction: advanceDeduction,
           tax_deduction: salaryStructure.tax_deduction || 0,
           other_deductions: salaryStructure.other_deductions || 0,
-          net_salary: netSalary,
+          net_salary: grossSalary - totalDeductions,
           status: 'pending',
         };
       });
@@ -543,24 +560,16 @@ export default function Payroll() {
       const { error } = await supabase.from('payroll').insert(payrollInserts);
       if (error) throw error;
 
-      // Update advance remaining amounts
       for (const employeeId of payrollForm.employee_ids) {
-        const employeeAdvances = advances.filter(a => 
-          a.employee_id === employeeId && 
-          (a.status === 'repaying' || a.status === 'approved') &&
-          a.remaining_amount > 0
+        const employeeAdvances = advances.filter(
+          (a) => a.employee_id === employeeId && (a.status === 'repaying' || a.status === 'approved') && a.remaining_amount > 0,
         );
-
         for (const advance of employeeAdvances) {
           const deduction = Math.min(advance.monthly_deduction || advance.amount, advance.remaining_amount);
           const newRemaining = advance.remaining_amount - deduction;
-          
           await supabase
             .from('advances')
-            .update({ 
-              remaining_amount: newRemaining,
-              status: newRemaining <= 0 ? 'completed' : advance.status
-            })
+            .update({ remaining_amount: newRemaining, status: newRemaining <= 0 ? 'completed' : advance.status })
             .eq('id', advance.id);
         }
       }
