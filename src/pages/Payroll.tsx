@@ -1132,15 +1132,20 @@ export default function Payroll() {
       <Dialog open={!!printPayslip} onOpenChange={(o) => { if (!o) setPrintPayslip(null); }}>
         <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
           <DialogHeader><DialogTitle>Payslip Preview</DialogTitle></DialogHeader>
-          {printPayslip && (
-            <PrintablePayslip
-              payroll={printPayslip as any}
-              salary={salaryStructures.find((s) => s.employee_id === printPayslip.employee_id) as any}
-              outstandingAfter={advances
-                .filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying'))
-                .reduce((s, a) => s + (Number(a.remaining_amount) || 0), 0)}
-            />
-          )}
+          {printPayslip && (() => {
+            const empAdvances = advances.filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying'));
+            const totalAdvances = empAdvances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+            const payrollsUpToThisMonth = payrolls.filter((p) => p.employee_id === printPayslip.employee_id && (new Date(p.year, p.month - 1).getTime() <= new Date(printPayslip.year, printPayslip.month - 1).getTime()));
+            const recoveredUpToThisMonth = payrollsUpToThisMonth.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
+            const outstandingAtThisMonth = Math.max(totalAdvances - recoveredUpToThisMonth, 0);
+            return (
+              <PrintablePayslip
+                payroll={printPayslip as any}
+                salary={salaryStructures.find((s) => s.employee_id === printPayslip.employee_id) as any}
+                outstandingAfter={outstandingAtThisMonth}
+              />
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

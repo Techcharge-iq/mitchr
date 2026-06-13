@@ -67,17 +67,21 @@ type Advance = {
 const PrintStyles = () => (
   <style>{`
     @media print {
-      body * { visibility: hidden !important; }
+      * { margin: 0; padding: 0; }
+      body { visibility: hidden; }
       .print-area, .print-area * { visibility: visible !important; }
-      .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+      .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; background: white; }
       .no-print { display: none !important; }
+      .print-area table { page-break-inside: avoid; }
     }
-    .print-area { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; }
-    .print-area table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .print-area th, .print-area td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }
-    .print-area th { background: #f3f4f6; }
+    @page { margin: 0.5in; }
+    .print-area { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; line-height: 1.5; }
+    .print-area table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+    .print-area th, .print-area td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
+    .print-area th { background: #f3f4f6; font-weight: 600; }
     .print-area .total-row td { background: #f9fafb; font-weight: 600; }
     .print-area .net-row td { background: #ecfdf5; color: #047857; font-weight: 700; font-size: 15px; }
+    .print-area h1, .print-area h3 { margin: 16px 0 8px 0; }
   `}</style>
 );
 
@@ -113,8 +117,8 @@ export function PrintablePayslip({
           <Printer className="mr-2 h-4 w-4" /> Print / Save as PDF
         </Button>
       </div>
-      <div className="print-area" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: 'white', padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #111', paddingBottom: 12 }}>
+      <div className="print-area" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: 'white', padding: '24px', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #111', paddingBottom: 12, marginBottom: 16 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>PAYSLIP</h1>
             <p style={{ margin: 0, color: '#666', fontSize: 12 }}>For the month of {format(new Date(payroll.year, payroll.month - 1), 'MMMM yyyy')}</p>
@@ -313,8 +317,8 @@ export function PrintableStatement({
           <Printer className="mr-2 h-4 w-4" /> Print / Save as PDF
         </Button>
       </div>
-      <div className="print-area" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: 'white', padding: 24 }}>
-        <div style={{ borderBottom: '2px solid #111', paddingBottom: 12 }}>
+      <div id="printable-statement" className="print-area" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: 'white', padding: 24 }}>
+        <div style={{ borderBottom: '2px solid #111', paddingBottom: 12, marginBottom: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>STATEMENT OF ACCOUNT</h1>
           <p style={{ margin: 0, color: '#666', fontSize: 12 }}>
             {employee.first_name} {employee.last_name} • {employee.employee_code} • Generated {format(new Date(), 'dd MMM yyyy')}
