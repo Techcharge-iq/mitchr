@@ -142,6 +142,8 @@ export default function Payroll() {
     status: 'draft',
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
+  const [printPayslip, setPrintPayslip] = useState<PayrollRecord | null>(null);
+  const [printStatementEmpId, setPrintStatementEmpId] = useState<string | null>(null);
   const [advanceForm, setAdvanceForm] = useState({
     employee_id: '',
     amount: '',
