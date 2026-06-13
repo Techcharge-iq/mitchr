@@ -1032,6 +1032,38 @@ export default function Payroll() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!printPayslip} onOpenChange={(o) => { if (!o) setPrintPayslip(null); }}>
+        <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Payslip Preview</DialogTitle></DialogHeader>
+          {printPayslip && (
+            <PrintablePayslip
+              payroll={printPayslip as any}
+              salary={salaryStructures.find((s) => s.employee_id === printPayslip.employee_id) as any}
+              outstandingAfter={advances
+                .filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying'))
+                .reduce((s, a) => s + (Number(a.remaining_amount) || 0), 0)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!printStatementEmpId} onOpenChange={(o) => { if (!o) setPrintStatementEmpId(null); }}>
+        <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Statement of Account</DialogTitle></DialogHeader>
+          {printStatementEmpId && (() => {
+            const emp = employees.find((e) => e.id === printStatementEmpId);
+            if (!emp) return null;
+            return (
+              <PrintableStatement
+                employee={emp as any}
+                advances={advances.filter((a) => a.employee_id === printStatementEmpId) as any}
+                payrolls={payrolls.filter((p) => p.employee_id === printStatementEmpId) as any}
+              />
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
