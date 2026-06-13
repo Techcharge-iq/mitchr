@@ -43,6 +43,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { PrintablePayslip, PrintableStatement } from '@/components/payroll/PrintableDocs';
 
 const PURPOSES = ['Food', 'Petrol', 'Personal Advance', 'Office Expenses'] as const;
 type Purpose = (typeof PURPOSES)[number];
