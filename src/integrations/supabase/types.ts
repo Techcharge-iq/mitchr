@@ -1119,7 +1119,13 @@ export type Database = {
         | "on_leave"
         | "holiday"
       contract_type: "full_time" | "part_time" | "contract" | "intern"
-      employment_status: "active" | "on_leave" | "terminated" | "suspended"
+      employment_status:
+        | "active"
+        | "on_leave"
+        | "terminated"
+        | "suspended"
+        | "resigned"
+        | "holiday"
       leave_status: "pending" | "approved" | "rejected" | "cancelled"
     }
     CompositeTypes: {
@@ -1265,7 +1271,14 @@ export const Constants = {
         "holiday",
       ],
       contract_type: ["full_time", "part_time", "contract", "intern"],
-      employment_status: ["active", "on_leave", "terminated", "suspended"],
+      employment_status: [
+        "active",
+        "on_leave",
+        "terminated",
+        "suspended",
+        "resigned",
+        "holiday",
+      ],
       leave_status: ["pending", "approved", "rejected", "cancelled"],
     },
   },

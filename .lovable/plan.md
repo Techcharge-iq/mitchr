@@ -1,61 +1,62 @@
-## Scope (minimum credits, ~3–4 edits, no DB changes)
+# Plan: Branded Payslip/SOA + Employee Status & Rejoin History
 
-Three files touched. No migrations, no schema changes. All deduction logic stays client-side using existing columns (`attendance.status`, `leave_applications`, `advances`, `salary_structures`, `payroll.attendance_deduction` / `advance_deduction`).
+## 1. Database changes (single migration)
 
----
+**Extend `employment_status` enum**
+- Add values: `resigned`, `holiday` (alongside existing `active`, `on_leave`, `terminated`, `suspended`).
 
-### 1. Attendance — default = Present (`src/pages/Attendance.tsx`)
+**New table: `public.employment_history`**
+- Columns: `employee_id` (FK), `status` (employment_status), `effective_date` (date), `end_date` (date, nullable), `reason` (text), `notes` (text), `created_by` (uuid), plus standard id/created_at/updated_at.
+- GRANTs for `authenticated` + `service_role`.
+- RLS:
+  - Admin/HR can manage all rows.
+  - Employee can read their own rows.
+- Trigger on `employees` UPDATE: when `employment_status` changes, auto-insert a history row (closes the previous open period by setting its `end_date`, opens a new one). This means rejoining = setting status back to `active` and a new active period is recorded automatically.
 
-- Change the merged view so unmarked employees display as **Present** by default (replace the `not_marked` placeholder + badge with `present`).
-- Keep the per-row `Select` (Admin can change to Absent, Half Day, On Leave, Holiday).
-- Remove the "Mark all Present" button (now redundant) **and** keep `markAttendance` upsert exactly as-is so admin overrides still persist.
-- No salary/deduction calculation happens here — confirmed; the page only writes status.
+## 2. Employees page (`src/pages/Employees.tsx`)
 
-### 2. Payroll — auto-calculate deductions + breakdown (`src/pages/Payroll.tsx`)
+- Add a **Status** column with badge (color-coded incl. new `resigned` = red, `holiday` = blue).
+- Row action **"Change Status"** opens a small dialog: select new status (active/on_leave/holiday/resigned/terminated/suspended), effective date, reason. Submit → updates `employees.employment_status` (trigger logs history). If switching from `resigned`/`terminated` back to `active`, the dialog title becomes **"Rejoin Employee"**.
+- Row action **"View History"** opens a dialog listing the employee's status timeline (from `employment_history`): date range, status, reason.
 
-Update `generatePayroll` only:
+## 3. Payroll: monthly outstanding
 
-- Treat **unmarked days as Present** (so no deduction unless explicitly Absent/Half-day).
-- Fetch unpaid leave for the month from `leave_applications` (status = `approved`, overlap with month, and `leave_type` flagged unpaid — fallback: count days where attendance status = `on_leave` AND the matching leave_application's leave_type `is_paid = false`; if unsure, count `on_leave` as unpaid by default). Add those days into `attendanceDeduction` at daily rate.
-- Daily rate = `basic_salary / 30` (calendar-month standard) so deductions are stable regardless of how many rows exist.
-- Persist a per-line breakdown (absent_days, half_days, unpaid_leave_days) by stuffing into existing `notes`/`remarks` text field if present; otherwise compute on-the-fly when rendering the payslip — **no schema change**.
+- In `Payroll.tsx` `generatePayroll`, compute `outstanding_before` (sum of `remaining_amount` across active advances BEFORE deduction) and pass both into the printable payslip props.
+- No schema change — derived live from `advances` history + this month's `advance_deduction`.
 
-Edit Payslip dialog: add read-only "Deduction Breakdown" block listing Absent / Half-day / Unpaid Leave / Advance amounts.
+## 4. Payslip redesign (`PrintableDocs.tsx` → `PrintablePayslip`)
 
-### 3. Professional A4 Payslip + SOA print (`src/pages/Payroll.tsx`)
+Match the attached mockup:
+- Top brand bar: **"PRIME GLOBAL PERFECT TRADING HRMS"** (left, bold) + **"PAYSLIP"** (right).
+- Employee/meta block as a single bordered table with light-gray label cells (Employee Name, For the Month, Employee Code, Days in Month, Status with badge, Generated Date).
+- Two side-by-side tables with **solid blue header bars** (white text): **EARNINGS** and **DEDUCTIONS**. Rows aligned right for amounts. Gross/Total rows highlighted.
+- Daily rate note line under the two tables.
+- **NET SALARY PAYABLE** row with full-width blue bar.
+- Two new lines below net salary:
+  - `Outstanding Advance Balance (Before this month): OMR X`
+  - `Outstanding Advance Balance (After this deduction): OMR Y`
+- Signature blocks unchanged.
+- Footer: *"This is a system-generated payslip. No physical signature required."*
 
-- Add a **"View / Print Payslip"** action button per payroll row that opens a print-ready dialog rendering an A4 layout:
-  - Header: company name + month/year
-  - Employee block: name, code, department, designation, bank acct
-  - Earnings table: Basic, Housing, Transport, Medical, Other → Gross
-  - Deductions table: Absent (days × rate), Half-day (days × rate × 0.5), Unpaid Leave, Advance, Tax, Other → Total Deductions
-  - **Net Salary** highlighted
-  - **Outstanding advance balance after deduction** (sum of `remaining_amount` for that employee post-run)
-  - `window.print()` button; CSS `@media print` hides app chrome, A4 page size.
+## 5. SOA redesign (`PrintableStatement`)
 
-- Statements tab: add a **"Print / Export Statement"** button per employee row that opens a printable SOA showing:
-  - All advances (date, purpose, amount, monthly deduction)
-  - Monthly payroll history (month, gross, advance deduction, net)
-  - **Running balance column** (outstanding after each event, chronologically merged)
-  - Same `@media print` styling, A4.
+- Same brand header bar (PRIME GLOBAL... + STATEMENT OF ACCOUNT).
+- Employee meta block as bordered table (Name, Code, Generated Date, Outstanding Balance).
+- Three sections with **blue header bars**: Salary Advances, Monthly Salary History, Ledger (Running Balance).
+- **Monthly Salary History** gets a new right-most **"Outstanding After"** column showing running outstanding balance at end of each month.
+- Footer note: system-generated.
 
-Export: print-to-PDF via browser (no new deps → keeps credits low).
+## 6. Files touched
 
----
-
-## Files touched
-
-1. `src/pages/Attendance.tsx` — default Present, drop bulk button.
-2. `src/pages/Payroll.tsx` — deduction calc upgrade, A4 payslip print dialog, SOA print dialog, deduction breakdown in edit form.
-3. (Optional) tiny shared `src/components/payroll/PrintablePayslip.tsx` + `PrintableStatement.tsx` to keep `Payroll.tsx` readable.
-
-No DB migration. No new dependencies. Existing RLS and mutations untouched.
+- `supabase/migrations/<new>.sql` — enum values, `employment_history` table, RLS, trigger.
+- `src/types/hrms.ts` — extend `EmploymentStatus` type, add `EmploymentHistory` interface.
+- `src/pages/Employees.tsx` — status column, change-status dialog, history dialog.
+- `src/pages/Payroll.tsx` — compute outstanding_before/after, pass to printable.
+- `src/components/payroll/PrintableDocs.tsx` — full redesign of both printables; accept outstanding props; running balance per month in SOA.
 
 ## Verification
 
-- Mark no attendance for an employee → payroll shows 0 absent deduction.
-- Mark 2 days Absent + 1 Half-day → payroll deducts `2.5 × (basic/30)`.
-- Approved unpaid leave for 3 days → deducted at daily rate.
-- Active advance with monthly deduction → deducted, `remaining_amount` decreases, payslip shows outstanding.
-- Click "Print" on payslip → clean A4 layout; only the payslip prints.
-- SOA for an employee shows chronological ledger with running balance.
+- Change employee `active → resigned` → row appears in `employment_history` with reason; old period closed.
+- Set back to `active` → new history row, badge updates, employee can be included in payroll again.
+- Generate a payslip after an advance with partial recovery → "Before" and "After" outstanding values match SOA ledger.
+- Print preview (window.print) renders A4 layout matching mockup with blue bars and brand header.
