@@ -479,6 +479,100 @@ export default function Employees() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Change status dialog */}
+      <Dialog open={!!statusEmp} onOpenChange={(o) => { if (!o) setStatusEmp(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {statusEmp && (statusEmp.employment_status === 'resigned' || statusEmp.employment_status === 'terminated') && statusForm.status === 'active'
+                ? 'Rejoin Employee'
+                : 'Change Employment Status'}
+            </DialogTitle>
+            <DialogDescription>
+              {statusEmp?.first_name} {statusEmp?.last_name} ({statusEmp?.employee_code})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>New Status</Label>
+              <Select value={statusForm.status} onValueChange={(v: EmploymentStatus) => setStatusForm({ ...statusForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="on_leave">On Leave</SelectItem>
+                  <SelectItem value="holiday">Holiday</SelectItem>
+                  <SelectItem value="resigned">Resigned</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                  <SelectItem value="terminated">Terminated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Reason / Notes</Label>
+              <Input
+                value={statusForm.reason}
+                onChange={(e) => setStatusForm({ ...statusForm, reason: e.target.value })}
+                placeholder="e.g. Rejoined after resignation, Annual holiday, etc."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusEmp(null)}>Cancel</Button>
+            <Button
+              onClick={() => statusEmp && updateStatus.mutate({ id: statusEmp.id, status: statusForm.status, reason: statusForm.reason })}
+              disabled={updateStatus.isPending || (statusEmp?.employment_status === statusForm.status)}
+            >
+              {updateStatus.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Update Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* History dialog */}
+      <Dialog open={!!historyEmp} onOpenChange={(o) => { if (!o) setHistoryEmp(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Employment History</DialogTitle>
+            <DialogDescription>
+              {historyEmp?.first_name} {historyEmp?.last_name} ({historyEmp?.employee_code})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {historyLoading ? (
+              <div className="py-8 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : historyRows.length === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">No history yet</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>From</TableHead>
+                    <TableHead>To</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyRows.map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell>
+                        <Badge variant="outline" className={cn('capitalize', getStatusColor(h.status))}>
+                          {h.status.replace('_', ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{h.effective_date ? format(new Date(h.effective_date), 'dd MMM yyyy') : '-'}</TableCell>
+                      <TableCell>{h.end_date ? format(new Date(h.end_date), 'dd MMM yyyy') : <span className="text-muted-foreground">Current</span>}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{h.reason || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
