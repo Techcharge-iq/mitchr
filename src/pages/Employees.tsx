@@ -420,6 +420,14 @@ export default function Employees() {
                               <Pencil className="mr-2 h-4 w-4" /> Edit
                             </DropdownMenuItem>
                           )}
+                          {isAdminOrHr && (
+                            <DropdownMenuItem onClick={() => { setStatusEmp(employee); setStatusForm({ status: employee.employment_status, reason: '' }); }}>
+                              <UserCog className="mr-2 h-4 w-4" /> Change Status
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => setHistoryEmp(employee)}>
+                            <History className="mr-2 h-4 w-4" /> View History
+                          </DropdownMenuItem>
                           {isAdmin && (
                             <DropdownMenuItem onClick={() => setDeleting(employee)} className="text-destructive focus:text-destructive">
                               <Trash2 className="mr-2 h-4 w-4" /> Delete
