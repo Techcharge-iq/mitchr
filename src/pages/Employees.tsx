@@ -206,10 +206,53 @@ export default function Employees() {
     switch (status) {
       case 'active': return 'bg-success/10 text-success border-success/20';
       case 'on_leave': return 'bg-warning/10 text-warning border-warning/20';
+      case 'holiday': return 'bg-primary/10 text-primary border-primary/20';
+      case 'resigned': return 'bg-orange-500/10 text-orange-600 border-orange-500/20';
       case 'terminated': return 'bg-destructive/10 text-destructive border-destructive/20';
+      case 'suspended': return 'bg-muted text-muted-foreground border-border';
       default: return 'bg-muted text-muted-foreground';
     }
   };
+
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, status, reason }: { id: string; status: EmploymentStatus; reason: string }) => {
+      const { error } = await supabase.from('employees').update({ employment_status: status }).eq('id', id);
+      if (error) throw error;
+      if (reason) {
+        // Update the latest open history row with the reason (trigger just inserted it)
+        const { data: latest } = await supabase
+          .from('employment_history')
+          .select('id')
+          .eq('employee_id', id)
+          .is('end_date', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latest?.id) await supabase.from('employment_history').update({ reason }).eq('id', latest.id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success('Status updated');
+      setStatusEmp(null);
+      setStatusForm({ status: 'active', reason: '' });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const { data: historyRows = [], isLoading: historyLoading } = useQuery({
+    queryKey: ['employment-history', historyEmp?.id],
+    enabled: !!historyEmp,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employment_history')
+        .select('*')
+        .eq('employee_id', historyEmp!.id)
+        .order('effective_date', { ascending: false });
+      if (error) throw error;
+      return data as EmploymentHistory[];
+    },
+  });
 
   const renderEmployeeForm = (onSubmit: () => void, submitting: boolean, label: string) => (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="grid gap-4 py-4">
