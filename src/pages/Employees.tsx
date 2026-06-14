@@ -47,10 +47,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
-import { Employee, Department, Branch } from '@/types/hrms';
+import { Employee, Department, Branch, EmploymentStatus, EmploymentHistory } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Plus, Search, Filter, MoreHorizontal, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Loader2, Pencil, Trash2, UserCog, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 import { useAuth } from '@/hooks/useAuth';
 
 type EmployeeForm = {
@@ -89,6 +90,9 @@ export default function Employees() {
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState<Employee | null>(null);
+  const [statusEmp, setStatusEmp] = useState<Employee | null>(null);
+  const [statusForm, setStatusForm] = useState<{ status: EmploymentStatus; reason: string }>({ status: 'active', reason: '' });
+  const [historyEmp, setHistoryEmp] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState<EmployeeForm>(emptyForm);
 
@@ -202,10 +206,53 @@ export default function Employees() {
     switch (status) {
       case 'active': return 'bg-success/10 text-success border-success/20';
       case 'on_leave': return 'bg-warning/10 text-warning border-warning/20';
+      case 'holiday': return 'bg-primary/10 text-primary border-primary/20';
+      case 'resigned': return 'bg-orange-500/10 text-orange-600 border-orange-500/20';
       case 'terminated': return 'bg-destructive/10 text-destructive border-destructive/20';
+      case 'suspended': return 'bg-muted text-muted-foreground border-border';
       default: return 'bg-muted text-muted-foreground';
     }
   };
+
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, status, reason }: { id: string; status: EmploymentStatus; reason: string }) => {
+      const { error } = await supabase.from('employees').update({ employment_status: status }).eq('id', id);
+      if (error) throw error;
+      if (reason) {
+        // Update the latest open history row with the reason (trigger just inserted it)
+        const { data: latest } = await supabase
+          .from('employment_history')
+          .select('id')
+          .eq('employee_id', id)
+          .is('end_date', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latest?.id) await supabase.from('employment_history').update({ reason }).eq('id', latest.id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success('Status updated');
+      setStatusEmp(null);
+      setStatusForm({ status: 'active', reason: '' });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const { data: historyRows = [], isLoading: historyLoading } = useQuery({
+    queryKey: ['employment-history', historyEmp?.id],
+    enabled: !!historyEmp,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employment_history')
+        .select('*')
+        .eq('employee_id', historyEmp!.id)
+        .order('effective_date', { ascending: false });
+      if (error) throw error;
+      return data as EmploymentHistory[];
+    },
+  });
 
   const renderEmployeeForm = (onSubmit: () => void, submitting: boolean, label: string) => (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="grid gap-4 py-4">
@@ -373,6 +420,14 @@ export default function Employees() {
                               <Pencil className="mr-2 h-4 w-4" /> Edit
                             </DropdownMenuItem>
                           )}
+                          {isAdminOrHr && (
+                            <DropdownMenuItem onClick={() => { setStatusEmp(employee); setStatusForm({ status: employee.employment_status, reason: '' }); }}>
+                              <UserCog className="mr-2 h-4 w-4" /> Change Status
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => setHistoryEmp(employee)}>
+                            <History className="mr-2 h-4 w-4" /> View History
+                          </DropdownMenuItem>
                           {isAdmin && (
                             <DropdownMenuItem onClick={() => setDeleting(employee)} className="text-destructive focus:text-destructive">
                               <Trash2 className="mr-2 h-4 w-4" /> Delete
@@ -424,6 +479,100 @@ export default function Employees() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Change status dialog */}
+      <Dialog open={!!statusEmp} onOpenChange={(o) => { if (!o) setStatusEmp(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {statusEmp && (statusEmp.employment_status === 'resigned' || statusEmp.employment_status === 'terminated') && statusForm.status === 'active'
+                ? 'Rejoin Employee'
+                : 'Change Employment Status'}
+            </DialogTitle>
+            <DialogDescription>
+              {statusEmp?.first_name} {statusEmp?.last_name} ({statusEmp?.employee_code})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>New Status</Label>
+              <Select value={statusForm.status} onValueChange={(v: EmploymentStatus) => setStatusForm({ ...statusForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="on_leave">On Leave</SelectItem>
+                  <SelectItem value="holiday">Holiday</SelectItem>
+                  <SelectItem value="resigned">Resigned</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                  <SelectItem value="terminated">Terminated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Reason / Notes</Label>
+              <Input
+                value={statusForm.reason}
+                onChange={(e) => setStatusForm({ ...statusForm, reason: e.target.value })}
+                placeholder="e.g. Rejoined after resignation, Annual holiday, etc."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusEmp(null)}>Cancel</Button>
+            <Button
+              onClick={() => statusEmp && updateStatus.mutate({ id: statusEmp.id, status: statusForm.status, reason: statusForm.reason })}
+              disabled={updateStatus.isPending || (statusEmp?.employment_status === statusForm.status)}
+            >
+              {updateStatus.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Update Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* History dialog */}
+      <Dialog open={!!historyEmp} onOpenChange={(o) => { if (!o) setHistoryEmp(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Employment History</DialogTitle>
+            <DialogDescription>
+              {historyEmp?.first_name} {historyEmp?.last_name} ({historyEmp?.employee_code})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {historyLoading ? (
+              <div className="py-8 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : historyRows.length === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">No history yet</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>From</TableHead>
+                    <TableHead>To</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyRows.map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell>
+                        <Badge variant="outline" className={cn('capitalize', getStatusColor(h.status))}>
+                          {h.status.replace('_', ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{h.effective_date ? format(new Date(h.effective_date), 'dd MMM yyyy') : '-'}</TableCell>
+                      <TableCell>{h.end_date ? format(new Date(h.end_date), 'dd MMM yyyy') : <span className="text-muted-foreground">Current</span>}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{h.reason || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

@@ -1,5 +1,18 @@
 export type AppRole = 'admin' | 'hr_staff' | 'manager' | 'accountant' | 'employee';
-export type EmploymentStatus = 'active' | 'on_leave' | 'terminated' | 'suspended';
+export type EmploymentStatus = 'active' | 'on_leave' | 'terminated' | 'suspended' | 'resigned' | 'holiday';
+
+export interface EmploymentHistory {
+  id: string;
+  employee_id: string;
+  status: EmploymentStatus;
+  effective_date: string;
+  end_date: string | null;
+  reason: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
 export type ContractType = 'full_time' | 'part_time' | 'contract' | 'intern';
 export type AttendanceStatus = 'present' | 'absent' | 'half_day' | 'on_leave' | 'holiday';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';

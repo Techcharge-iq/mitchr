@@ -180,8 +180,11 @@ const rebuildEmployeeAdvanceBalances = async (employeeId: string) => {
     };
   });
 
-  if (updates.length > 0) {
-    const { error: updateError } = await supabase.from('advances').upsert(updates, { onConflict: ['id'] });
+  for (const u of updates) {
+    const { error: updateError } = await supabase
+      .from('advances')
+      .update({ remaining_amount: u.remaining_amount, status: u.status })
+      .eq('id', u.id);
     if (updateError) throw updateError;
   }
 };
@@ -1133,16 +1136,18 @@ export default function Payroll() {
         <DialogContent className="max-h-[95vh] max-w-4xl overflow-y-auto">
           <DialogHeader><DialogTitle>Payslip Preview</DialogTitle></DialogHeader>
           {printPayslip && (() => {
-            const empAdvances = advances.filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying'));
+            const empAdvances = advances.filter((a) => a.employee_id === printPayslip.employee_id && (a.status === 'approved' || a.status === 'repaying' || a.status === 'completed'));
             const totalAdvances = empAdvances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-            const payrollsUpToThisMonth = payrolls.filter((p) => p.employee_id === printPayslip.employee_id && (new Date(p.year, p.month - 1).getTime() <= new Date(printPayslip.year, printPayslip.month - 1).getTime()));
-            const recoveredUpToThisMonth = payrollsUpToThisMonth.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
-            const outstandingAtThisMonth = Math.max(totalAdvances - recoveredUpToThisMonth, 0);
+            const priorPayrolls = payrolls.filter((p) => p.employee_id === printPayslip.employee_id && (new Date(p.year, p.month - 1).getTime() < new Date(printPayslip.year, printPayslip.month - 1).getTime()));
+            const recoveredBefore = priorPayrolls.reduce((sum, p) => sum + (Number(p.advance_deduction) || 0), 0);
+            const outstandingBefore = Math.max(totalAdvances - recoveredBefore, 0);
+            const outstandingAfter = Math.max(outstandingBefore - (Number(printPayslip.advance_deduction) || 0), 0);
             return (
               <PrintablePayslip
                 payroll={printPayslip as any}
                 salary={salaryStructures.find((s) => s.employee_id === printPayslip.employee_id) as any}
-                outstandingAfter={outstandingAtThisMonth}
+                outstandingBefore={outstandingBefore}
+                outstandingAfter={outstandingAfter}
               />
             );
           })()}

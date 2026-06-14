@@ -487,6 +487,53 @@ export type Database = {
           },
         ]
       }
+      employment_history: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_date: string
+          employee_id: string
+          end_date: string | null
+          id: string
+          notes: string | null
+          reason: string | null
+          status: Database["public"]["Enums"]["employment_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          employee_id: string
+          end_date?: string | null
+          id?: string
+          notes?: string | null
+          reason?: string | null
+          status: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          employee_id?: string
+          end_date?: string | null
+          id?: string
+          notes?: string | null
+          reason?: string | null
+          status?: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employment_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           created_at: string | null
@@ -1119,7 +1166,13 @@ export type Database = {
         | "on_leave"
         | "holiday"
       contract_type: "full_time" | "part_time" | "contract" | "intern"
-      employment_status: "active" | "on_leave" | "terminated" | "suspended"
+      employment_status:
+        | "active"
+        | "on_leave"
+        | "terminated"
+        | "suspended"
+        | "resigned"
+        | "holiday"
       leave_status: "pending" | "approved" | "rejected" | "cancelled"
     }
     CompositeTypes: {
@@ -1265,7 +1318,14 @@ export const Constants = {
         "holiday",
       ],
       contract_type: ["full_time", "part_time", "contract", "intern"],
-      employment_status: ["active", "on_leave", "terminated", "suspended"],
+      employment_status: [
+        "active",
+        "on_leave",
+        "terminated",
+        "suspended",
+        "resigned",
+        "holiday",
+      ],
       leave_status: ["pending", "approved", "rejected", "cancelled"],
     },
   },
