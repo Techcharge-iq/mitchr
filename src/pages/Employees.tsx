@@ -47,10 +47,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
-import { Employee, Department, Branch } from '@/types/hrms';
+import { Employee, Department, Branch, EmploymentStatus, EmploymentHistory } from '@/types/hrms';
 import { toast } from 'sonner';
-import { Plus, Search, Filter, MoreHorizontal, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Loader2, Pencil, Trash2, UserCog, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 import { useAuth } from '@/hooks/useAuth';
 
 type EmployeeForm = {
