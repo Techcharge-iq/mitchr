@@ -90,6 +90,9 @@ export default function Employees() {
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState<Employee | null>(null);
+  const [statusEmp, setStatusEmp] = useState<Employee | null>(null);
+  const [statusForm, setStatusForm] = useState<{ status: EmploymentStatus; reason: string }>({ status: 'active', reason: '' });
+  const [historyEmp, setHistoryEmp] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState<EmployeeForm>(emptyForm);
 
