@@ -180,8 +180,11 @@ const rebuildEmployeeAdvanceBalances = async (employeeId: string) => {
     };
   });
 
-  if (updates.length > 0) {
-    const { error: updateError } = await supabase.from('advances').upsert(updates, { onConflict: ['id'] });
+  for (const u of updates) {
+    const { error: updateError } = await supabase
+      .from('advances')
+      .update({ remaining_amount: u.remaining_amount, status: u.status })
+      .eq('id', u.id);
     if (updateError) throw updateError;
   }
 };
